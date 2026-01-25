@@ -153,13 +153,12 @@ export default function ExerciseSearchScreen() {
         console.error('Error updating started_at:', updateError);
       }
 
-      // Create default stage
+      // Create default stage (order_index will be set by update to avoid schema cache issue)
       const { data: stage, error: stageError } = await supabase
         .from('workout_stages')
         .insert({
           workout_id: workout.id,
           name: 'General Workout',
-          order_index: 0,
         })
         .select()
         .single();
@@ -171,24 +170,48 @@ export default function ExerciseSearchScreen() {
 
       if (!stage) throw new Error('Stage creation failed');
 
-      // Add exercises to workout
-      const workoutExercises = selectedExercises.map((ex, index) => ({
+      // Update order_index (workaround for schema cache issue)
+      const { error: stageUpdateError } = await supabase
+        .from('workout_stages')
+        .update({ order_index: 0 })
+        .eq('id', stage.id);
+
+      if (stageUpdateError) {
+        console.error('Error updating stage order_index:', stageUpdateError);
+      }
+
+      // Add exercises to workout (without order_index to avoid schema cache issue)
+      const workoutExercisesBase = selectedExercises.map((ex) => ({
         workout_id: workout.id,
         stage_id: stage.id,
         exercise_variation_id: ex.variationId,
-        order_index: index,
         target_sets: 3,
         target_reps_min: 8,
         target_reps_max: 12,
       }));
 
-      const { error: exercisesError } = await supabase
+      const { data: insertedExercises, error: exercisesError } = await supabase
         .from('workout_exercises')
-        .insert(workoutExercises);
+        .insert(workoutExercisesBase)
+        .select();
 
       if (exercisesError) {
         console.error('Exercises creation error:', exercisesError);
         throw exercisesError;
+      }
+
+      // Update order_index for each exercise (workaround for schema cache issue)
+      if (insertedExercises && insertedExercises.length > 0) {
+        for (let i = 0; i < insertedExercises.length; i++) {
+          const { error: orderUpdateError } = await supabase
+            .from('workout_exercises')
+            .update({ order_index: i })
+            .eq('id', insertedExercises[i].id);
+
+          if (orderUpdateError) {
+            console.error(`Error updating exercise ${i} order_index:`, orderUpdateError);
+          }
+        }
       }
 
       // Navigate to active workout
