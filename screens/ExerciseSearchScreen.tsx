@@ -123,6 +123,14 @@ export default function ExerciseSearchScreen() {
     if (!session?.user) return;
 
     try {
+      // Delete any existing workout for this date (handles orphaned records from failed attempts)
+      // This prevents unique constraint violations
+      await supabase
+        .from('workouts')
+        .delete()
+        .eq('user_id', session.user.id)
+        .eq('workout_date', date);
+
       // Create workout (started_at will be set by database trigger or default)
       const { data: workout, error: workoutError } = await supabase
         .from('workouts')
