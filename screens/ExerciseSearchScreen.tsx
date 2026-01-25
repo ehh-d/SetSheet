@@ -153,8 +153,8 @@ export default function ExerciseSearchScreen() {
         }
       }
 
-      // Create workout (started_at will be set by database trigger or default)
-      const { data: workout, error: workoutError } = await supabase
+      // Create workout (using correct column names from database)
+      const { data: workout, error: workoutError} = await supabase
         .from('workouts')
         .insert({
           user_id: session.user.id,
@@ -173,22 +173,13 @@ export default function ExerciseSearchScreen() {
 
       if (!workout) throw new Error('Workout creation failed');
 
-      // Update started_at timestamp
-      const { error: updateError } = await supabase
-        .from('workouts')
-        .update({ started_at: new Date().toISOString() })
-        .eq('id', workout.id);
-
-      if (updateError) {
-        console.error('Error updating started_at:', updateError);
-      }
-
-      // Create default stage (order_index will be set by update to avoid schema cache issue)
+      // Create default stage (using correct column name: sort_order)
       const { data: stage, error: stageError } = await supabase
         .from('workout_stages')
         .insert({
           workout_id: workout.id,
           name: 'General Workout',
+          sort_order: 0,
         })
         .select()
         .single();
@@ -200,50 +191,24 @@ export default function ExerciseSearchScreen() {
 
       if (!stage) throw new Error('Stage creation failed');
 
-      // Update order_index (workaround for schema cache issue)
-      const { error: stageUpdateError } = await supabase
-        .from('workout_stages')
-        .update({ order_index: 0 })
-        .eq('id', stage.id);
-
-      if (stageUpdateError) {
-        console.error('Error updating stage order_index:', stageUpdateError);
-      }
-
-      // Add exercises to workout (minimal insert to avoid schema cache issues)
-      const workoutExercisesBase = selectedExercises.map((ex) => ({
+      // Add exercises to workout (using correct column names)
+      const workoutExercises = selectedExercises.map((ex, index) => ({
         workout_id: workout.id,
         stage_id: stage.id,
         exercise_variation_id: ex.variationId,
+        sort_order: index,
+        proposed_sets: 3,
+        proposed_reps_min: 8,
+        proposed_reps_max: 12,
       }));
 
-      const { data: insertedExercises, error: exercisesError } = await supabase
+      const { error: exercisesError } = await supabase
         .from('workout_exercises')
-        .insert(workoutExercisesBase)
-        .select();
+        .insert(workoutExercises);
 
       if (exercisesError) {
         console.error('Exercises creation error:', exercisesError);
         throw exercisesError;
-      }
-
-      // Update all fields separately (workaround for schema cache issue)
-      if (insertedExercises && insertedExercises.length > 0) {
-        for (let i = 0; i < insertedExercises.length; i++) {
-          const { error: updateError } = await supabase
-            .from('workout_exercises')
-            .update({
-              order_index: i,
-              target_sets: 3,
-              target_reps_min: 8,
-              target_reps_max: 12
-            })
-            .eq('id', insertedExercises[i].id);
-
-          if (updateError) {
-            console.error(`Error updating exercise ${i}:`, updateError);
-          }
-        }
       }
 
       // Navigate to active workout

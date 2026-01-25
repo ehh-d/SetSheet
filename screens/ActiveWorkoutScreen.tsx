@@ -60,10 +60,10 @@ export default function ActiveWorkoutScreen() {
         workout_exercises (
           id,
           exercise_variation_id,
-          order_index,
-          target_sets,
-          target_reps_min,
-          target_reps_max,
+          sort_order,
+          proposed_sets,
+          proposed_reps_min,
+          proposed_reps_max,
           exercise_variations (
             id,
             equipment,
@@ -78,7 +78,7 @@ export default function ActiveWorkoutScreen() {
             set_number,
             reps,
             weight,
-            completed,
+            is_completed,
             completed_at
           )
         )
@@ -109,7 +109,7 @@ export default function ActiveWorkoutScreen() {
               set_number,
               reps,
               weight,
-              completed
+              is_completed
             ),
             workouts!inner (
               id,
@@ -154,8 +154,8 @@ export default function ActiveWorkoutScreen() {
         set_number: nextSetNumber,
         reps: null,
         weight: null,
-        completed: false,
-      } as any);
+        is_completed: false,
+      });
 
     if (!error) {
       await loadWorkout();
@@ -183,9 +183,9 @@ export default function ActiveWorkoutScreen() {
     const { error } = await supabase
       .from('sets')
       .update({
-        completed: !currentStatus,
+        is_completed: !currentStatus,
         completed_at: !currentStatus ? new Date().toISOString() : null,
-      } as any)
+      })
       .eq('id', setId);
 
     if (!error) {
@@ -291,7 +291,7 @@ export default function ActiveWorkoutScreen() {
       {/* Exercises */}
       <ScrollView style={styles.content}>
         {workout.workout_exercises
-          .sort((a, b) => a.order_index - b.order_index)
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
           .map((exercise, index) => (
             <View key={exercise.id} style={styles.exerciseBlock}>
               <View style={styles.exerciseHeader}>
@@ -364,10 +364,10 @@ export default function ActiveWorkoutScreen() {
                         />
                         <TouchableOpacity
                           style={[styles.checkButton, styles.checkCol]}
-                          onPress={() => handleToggleSetComplete(set.id, set.completed)}
+                          onPress={() => handleToggleSetComplete(set.id, set.is_completed || false)}
                         >
                           <Text style={styles.checkText}>
-                            {set.completed ? '✓' : '○'}
+                            {set.is_completed ? '✓' : '○'}
                           </Text>
                         </TouchableOpacity>
                       </View>
