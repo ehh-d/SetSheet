@@ -1,20 +1,60 @@
+import React from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { RootStackParamList } from './types';
 
-export default function App() {
+// Screens
+import LoginScreen from './screens/LoginScreen';
+import HomeScreen from './screens/HomeScreen';
+import CategorySelectionScreen from './screens/CategorySelectionScreen';
+import ExerciseSearchScreen from './screens/ExerciseSearchScreen';
+import ActiveWorkoutScreen from './screens/ActiveWorkoutScreen';
+import WorkoutSummaryScreen from './screens/WorkoutSummaryScreen';
+import UploadTemplateScreen from './screens/UploadTemplateScreen';
+import TemplatePreviewScreen from './screens/TemplatePreviewScreen';
+import ExerciseLibraryScreen from './screens/ExerciseLibraryScreen';
+
+const Stack = createNativeStackNavigator<RootStackParamList>();
+
+function Navigation() {
+  const { session, loading } = useAuth();
+
+  if (loading) {
+    return null; // Could add a splash screen here
+  }
+
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <NavigationContainer>
+      {!session ? (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Login" component={LoginScreen} />
+        </Stack.Navigator>
+      ) : (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Home" component={HomeScreen} />
+          <Stack.Screen name="CategorySelection" component={CategorySelectionScreen} />
+          <Stack.Screen name="ExerciseSearch" component={ExerciseSearchScreen} />
+          <Stack.Screen name="ActiveWorkout" component={ActiveWorkoutScreen} />
+          <Stack.Screen name="WorkoutSummary" component={WorkoutSummaryScreen} />
+          <Stack.Screen name="UploadTemplate" component={UploadTemplateScreen} />
+          <Stack.Screen name="TemplatePreview" component={TemplatePreviewScreen} />
+          <Stack.Screen name="ExerciseLibrary" component={ExerciseLibraryScreen} />
+        </Stack.Navigator>
+      )}
+    </NavigationContainer>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+export default function App() {
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AuthProvider>
+        <StatusBar style="light" />
+        <Navigation />
+      </AuthProvider>
+    </GestureHandlerRootView>
+  );
+}
