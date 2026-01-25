@@ -123,13 +123,35 @@ export default function ExerciseSearchScreen() {
     if (!session?.user) return;
 
     try {
-      // Delete any existing workout for this date (handles orphaned records from failed attempts)
-      // This prevents unique constraint violations
-      await supabase
+      // Check if any workout exists for this date
+      const { data: existingWorkouts } = await supabase
         .from('workouts')
-        .delete()
+        .select('id, status')
         .eq('user_id', session.user.id)
         .eq('workout_date', date);
+
+      if (existingWorkouts && existingWorkouts.length > 0) {
+        // Only auto-cleanup orphaned non-completed workouts (from failed attempts)
+        const nonCompletedWorkouts = existingWorkouts.filter(w => w.status !== 'completed');
+
+        if (nonCompletedWorkouts.length > 0) {
+          // Clean up orphaned workouts from failed attempts
+          for (const workout of nonCompletedWorkouts) {
+            await supabase.from('workouts').delete().eq('id', workout.id);
+          }
+        }
+
+        // Check if completed workout still exists
+        const completedWorkout = existingWorkouts.find(w => w.status === 'completed');
+        if (completedWorkout) {
+          Alert.alert(
+            'Workout Already Exists',
+            'You already have a completed workout for this date. Please delete it from the home screen if you want to create a new one.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      }
 
       // Create workout (started_at will be set by database trigger or default)
       const { data: workout, error: workoutError } = await supabase
@@ -188,14 +210,11 @@ export default function ExerciseSearchScreen() {
         console.error('Error updating stage order_index:', stageUpdateError);
       }
 
-      // Add exercises to workout (without order_index to avoid schema cache issue)
+      // Add exercises to workout (minimal insert to avoid schema cache issues)
       const workoutExercisesBase = selectedExercises.map((ex) => ({
         workout_id: workout.id,
         stage_id: stage.id,
         exercise_variation_id: ex.variationId,
-        target_sets: 3,
-        target_reps_min: 8,
-        target_reps_max: 12,
       }));
 
       const { data: insertedExercises, error: exercisesError } = await supabase
@@ -208,16 +227,21 @@ export default function ExerciseSearchScreen() {
         throw exercisesError;
       }
 
-      // Update order_index for each exercise (workaround for schema cache issue)
+      // Update all fields separately (workaround for schema cache issue)
       if (insertedExercises && insertedExercises.length > 0) {
         for (let i = 0; i < insertedExercises.length; i++) {
-          const { error: orderUpdateError } = await supabase
+          const { error: updateError } = await supabase
             .from('workout_exercises')
-            .update({ order_index: i })
+            .update({
+              order_index: i,
+              target_sets: 3,
+              target_reps_min: 8,
+              target_reps_max: 12
+            })
             .eq('id', insertedExercises[i].id);
 
-          if (orderUpdateError) {
-            console.error(`Error updating exercise ${i} order_index:`, orderUpdateError);
+          if (updateError) {
+            console.error(`Error updating exercise ${i}:`, updateError);
           }
         }
       }
