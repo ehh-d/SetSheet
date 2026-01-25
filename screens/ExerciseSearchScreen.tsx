@@ -123,7 +123,7 @@ export default function ExerciseSearchScreen() {
     if (!session?.user) return;
 
     try {
-      // Create workout
+      // Create workout (started_at will be set by database trigger or default)
       const { data: workout, error: workoutError } = await supabase
         .from('workouts')
         .insert({
@@ -132,30 +132,49 @@ export default function ExerciseSearchScreen() {
           category_id: categoryId,
           name: categoryName,
           status: 'active',
-          started_at: new Date().toISOString(),
-        } as any)
+        })
         .select()
         .single();
 
-      if (workoutError) throw workoutError;
+      if (workoutError) {
+        console.error('Workout creation error:', workoutError);
+        throw workoutError;
+      }
+
+      if (!workout) throw new Error('Workout creation failed');
+
+      // Update started_at timestamp
+      const { error: updateError } = await supabase
+        .from('workouts')
+        .update({ started_at: new Date().toISOString() })
+        .eq('id', workout.id);
+
+      if (updateError) {
+        console.error('Error updating started_at:', updateError);
+      }
 
       // Create default stage
       const { data: stage, error: stageError } = await supabase
         .from('workout_stages')
         .insert({
-          workout_id: (workout as any).id,
+          workout_id: workout.id,
           name: 'General Workout',
           order_index: 0,
-        } as any)
+        })
         .select()
         .single();
 
-      if (stageError) throw stageError;
+      if (stageError) {
+        console.error('Stage creation error:', stageError);
+        throw stageError;
+      }
+
+      if (!stage) throw new Error('Stage creation failed');
 
       // Add exercises to workout
       const workoutExercises = selectedExercises.map((ex, index) => ({
-        workout_id: (workout as any).id,
-        stage_id: (stage as any).id,
+        workout_id: workout.id,
+        stage_id: stage.id,
         exercise_variation_id: ex.variationId,
         order_index: index,
         target_sets: 3,
@@ -165,12 +184,15 @@ export default function ExerciseSearchScreen() {
 
       const { error: exercisesError } = await supabase
         .from('workout_exercises')
-        .insert(workoutExercises as any);
+        .insert(workoutExercises);
 
-      if (exercisesError) throw exercisesError;
+      if (exercisesError) {
+        console.error('Exercises creation error:', exercisesError);
+        throw exercisesError;
+      }
 
       // Navigate to active workout
-      navigation.navigate('ActiveWorkout', { workoutId: (workout as any).id });
+      navigation.navigate('ActiveWorkout', { workoutId: workout.id });
     } catch (error: any) {
       Alert.alert('Error', error.message);
     }
