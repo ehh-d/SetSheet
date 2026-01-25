@@ -96,6 +96,11 @@ export default function ExerciseSearchScreen() {
 
     if (!variation) return;
 
+    // Check if this variation is already selected (prevent duplicates)
+    if (selectedExercises.some(ex => ex.variationId === variation.id)) {
+      return;
+    }
+
     const newSelection: SelectedExercise = {
       variationId: variation.id,
       exerciseName: exercise.name,
@@ -258,41 +263,88 @@ export default function ExerciseSearchScreen() {
                 <Text style={styles.sectionHeader}>{letter}</Text>
                 {groupedExercises[letter].map(exercise => {
                   const isExpanded = expandedExerciseId === exercise.id;
-                  const isSelected = selectedExercises.some(ex =>
+                  const hasMultipleVariations = exercise.exercise_variations.length > 1;
+                  const isSingleExerciseSelected = !hasMultipleVariations && selectedExercises.some(ex =>
                     exercise.exercise_variations.some(v => v.id === ex.variationId)
                   );
 
                   return (
-                    <View key={exercise.id} style={styles.exerciseCard}>
+                    <View key={exercise.id} style={[
+                      styles.exerciseCard,
+                      isSingleExerciseSelected && styles.exerciseCardSelected
+                    ]}>
                       <TouchableOpacity
                         style={styles.exerciseMain}
                         onPress={() => toggleExpanded(exercise.id)}
                       >
                         <View style={styles.exerciseInfo}>
-                          <Text style={styles.exerciseName}>{exercise.name}</Text>
-                          <Text style={styles.muscleGroup}>{exercise.muscle_group}</Text>
+                          <Text style={[
+                            styles.exerciseName,
+                            isSingleExerciseSelected && styles.exerciseNameSelected
+                          ]}>{exercise.name}</Text>
+                          <Text style={[
+                            styles.muscleGroup,
+                            isSingleExerciseSelected && styles.muscleGroupSelected
+                          ]}>{exercise.muscle_group}</Text>
                         </View>
-                        <TouchableOpacity
-                          style={styles.addButton}
-                          onPress={() => handleAddExercise(exercise)}
-                        >
-                          <Text style={styles.addButtonText}>+</Text>
-                        </TouchableOpacity>
+                        {/* Only show +/X button for single-variation exercises */}
+                        {!hasMultipleVariations && (
+                          <TouchableOpacity
+                            style={[
+                              styles.addButton,
+                              isSingleExerciseSelected && styles.removeButton
+                            ]}
+                            onPress={() => {
+                              if (isSingleExerciseSelected) {
+                                handleRemoveExercise(exercise.exercise_variations[0].id);
+                              } else {
+                                handleAddExercise(exercise);
+                              }
+                            }}
+                          >
+                            <Text style={[
+                              styles.addButtonText,
+                              isSingleExerciseSelected && styles.removeButtonText
+                            ]}>
+                              {isSingleExerciseSelected ? '×' : '+'}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                       </TouchableOpacity>
 
                       {isExpanded && (
                         <View style={styles.variationsContainer}>
                           <Text style={styles.variationsTitle}>Equipment:</Text>
-                          {exercise.exercise_variations.map(variation => (
-                            <TouchableOpacity
-                              key={variation.id}
-                              style={styles.variationRow}
-                              onPress={() => handleAddExercise(exercise, variation.id)}
-                            >
-                              <Text style={styles.variationText}>{variation.equipment}</Text>
-                              <Text style={styles.addButtonText}>+</Text>
-                            </TouchableOpacity>
-                          ))}
+                          {exercise.exercise_variations.map(variation => {
+                            const isVariationSelected = selectedExercises.some(ex => ex.variationId === variation.id);
+                            return (
+                              <TouchableOpacity
+                                key={variation.id}
+                                style={[
+                                  styles.variationRow,
+                                  isVariationSelected && styles.variationRowSelected
+                                ]}
+                                onPress={() => {
+                                  if (isVariationSelected) {
+                                    handleRemoveExercise(variation.id);
+                                  } else {
+                                    handleAddExercise(exercise, variation.id);
+                                  }
+                                }}
+                              >
+                                <Text style={[
+                                  styles.variationText,
+                                  isVariationSelected && styles.variationTextSelected
+                                ]}>{variation.equipment}</Text>
+                                <Text style={[
+                                  styles.addButtonText,
+                                  isVariationSelected && styles.removeButtonText
+                                ]}>
+                                  {isVariationSelected ? '×' : '+'}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
                         </View>
                       )}
                     </View>
@@ -424,6 +476,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
   },
+  exerciseCardSelected: {
+    backgroundColor: '#FFFFFF',
+  },
   exerciseMain: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -439,9 +494,15 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginBottom: 4,
   },
+  exerciseNameSelected: {
+    color: '#1A1A1A',
+  },
   muscleGroup: {
     fontSize: 12,
     color: '#888888',
+  },
+  muscleGroupSelected: {
+    color: '#666666',
   },
   addButton: {
     width: 32,
@@ -451,10 +512,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  removeButton: {
+    backgroundColor: '#1A1A1A',
+  },
   addButtonText: {
     color: '#1A1A1A',
     fontSize: 20,
     fontWeight: 'bold',
+  },
+  removeButtonText: {
+    color: '#FFFFFF',
   },
   variationsContainer: {
     borderTopWidth: 1,
@@ -472,10 +539,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginVertical: 4,
+    borderRadius: 8,
+    backgroundColor: '#1A1A1A',
+  },
+  variationRowSelected: {
+    backgroundColor: '#FFFFFF',
   },
   variationText: {
     fontSize: 14,
     color: '#FFFFFF',
+  },
+  variationTextSelected: {
+    color: '#1A1A1A',
   },
   footer: {
     padding: 20,
