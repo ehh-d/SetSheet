@@ -79,6 +79,10 @@ export default function HomeScreen() {
     return workout?.status === 'completed';
   };
 
+  const hasWorkout = (date: Date) => {
+    return !!getWorkoutForDate(date);
+  };
+
   const selectedWorkout = getWorkoutForDate(selectedDate);
 
   const handleStartSheet = () => {
@@ -291,18 +295,24 @@ export default function HomeScreen() {
           ) : selectedWorkout ? (
             <View style={styles.workoutSummary}>
               <Text style={styles.workoutName}>
-                {selectedWorkout.name || 'Workout Completed'}
+                {selectedWorkout.name || (selectedWorkout.status === 'completed' ? 'Workout Completed' : 'Workout in Progress')}
               </Text>
               <Text style={styles.workoutDate}>
                 {format(selectedDate, 'MMMM d, yyyy')}
               </Text>
               <TouchableOpacity
                 style={styles.viewButton}
-                onPress={() => navigation.navigate('WorkoutSummary', {
-                  workoutId: selectedWorkout.id,
-                })}
+                onPress={() => {
+                  if (selectedWorkout.status === 'completed') {
+                    navigation.navigate('WorkoutSummary', { workoutId: selectedWorkout.id });
+                  } else {
+                    navigation.navigate('ActiveWorkout', { workoutId: selectedWorkout.id });
+                  }
+                }}
               >
-                <Text style={styles.viewButtonText}>View Workout</Text>
+                <Text style={styles.viewButtonText}>
+                  {selectedWorkout.status === 'completed' ? 'View Workout' : 'Continue Workout'}
+                </Text>
               </TouchableOpacity>
             </View>
           ) : (

@@ -131,23 +131,33 @@ export default function ExerciseSearchScreen() {
         .eq('workout_date', date);
 
       if (existingWorkouts && existingWorkouts.length > 0) {
-        // Only auto-cleanup orphaned non-completed workouts (from failed attempts)
-        const nonCompletedWorkouts = existingWorkouts.filter(w => w.status !== 'completed');
+        const existingWorkout = existingWorkouts[0];
 
-        if (nonCompletedWorkouts.length > 0) {
-          // Clean up orphaned workouts from failed attempts
-          for (const workout of nonCompletedWorkouts) {
-            await supabase.from('workouts').delete().eq('id', workout.id);
-          }
-        }
-
-        // Check if completed workout still exists
-        const completedWorkout = existingWorkouts.find(w => w.status === 'completed');
-        if (completedWorkout) {
+        // If workout already exists, navigate to it instead of creating a new one
+        if (existingWorkout.status === 'completed') {
           Alert.alert(
             'Workout Already Exists',
-            'You already have a completed workout for this date. Please delete it from the home screen if you want to create a new one.',
-            [{ text: 'OK' }]
+            'You already have a completed workout for this date.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'View Workout',
+                onPress: () => navigation.navigate('WorkoutSummary', { workoutId: existingWorkout.id })
+              }
+            ]
+          );
+          return;
+        } else if (existingWorkout.status === 'active') {
+          Alert.alert(
+            'Workout In Progress',
+            'You have an active workout for this date.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Continue Workout',
+                onPress: () => navigation.navigate('ActiveWorkout', { workoutId: existingWorkout.id })
+              }
+            ]
           );
           return;
         }

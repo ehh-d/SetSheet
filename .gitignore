@@ -39,3 +39,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# admin scripts (contain service_role key - never commit)
+*_db.js
+delete_*.js
+inspect_*.js
+admin_*.js

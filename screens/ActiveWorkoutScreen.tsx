@@ -25,12 +25,20 @@ type ActiveWorkoutNavigationProp = NativeStackNavigationProp<
 >;
 type ActiveWorkoutRouteProp = RouteProp<RootStackParamList, 'ActiveWorkout'>;
 
+interface WorkoutStageData {
+  id: string;
+  name: string | null;
+  sort_order: number | null;
+  workout_id: string;
+}
+
 interface WorkoutData {
   id: string;
   workout_date: string;
   name: string | null;
   notes?: string | null;
   user_id?: string;
+  workout_stages: WorkoutStageData[];
   workout_exercises: WorkoutExerciseWithDetails[];
 }
 
@@ -57,9 +65,16 @@ export default function ActiveWorkoutScreen() {
         name,
         notes,
         user_id,
+        workout_stages (
+          id,
+          name,
+          sort_order,
+          workout_id
+        ),
         workout_exercises (
           id,
           exercise_variation_id,
+          stage_id,
           sort_order,
           proposed_sets,
           proposed_reps_min,
@@ -96,39 +111,19 @@ export default function ActiveWorkoutScreen() {
   };
 
   const loadPreviousWorkoutData = async (workoutData: WorkoutData) => {
-    // For each exercise, find the most recent completed workout with the same exercise
+    // Use optimized database function to get previous sets for each exercise
     const exercisesWithPrevious = await Promise.all(
       workoutData.workout_exercises.map(async (exercise) => {
-        const exerciseVariationId = exercise.exercise_variation_id;
-
-        // Query for the most recent completed workout with this exercise variation
-        const { data: previousWorkout } = await supabase
-          .from('workout_exercises')
-          .select(`
-            sets (
-              set_number,
-              reps,
-              weight,
-              is_completed
-            ),
-            workouts!inner (
-              id,
-              workout_date,
-              status
-            )
-          `)
-          .eq('exercise_variation_id', exerciseVariationId)
-          .eq('workouts.user_id', workoutData.user_id)
-          .eq('workouts.status', 'completed')
-          .lt('workouts.workout_date', workoutData.workout_date)
-          .order('workouts.workout_date', { ascending: false })
-          .limit(1)
-          .single();
+        const { data: previousSets } = await supabase.rpc('get_previous_workout_sets', {
+          p_user_id: workoutData.user_id,
+          p_exercise_variation_id: exercise.exercise_variation_id,
+          p_before_date: workoutData.workout_date
+        });
 
         // Add previous sets data to the exercise
         return {
           ...exercise,
-          previousSets: previousWorkout?.sets || [],
+          previousSets: previousSets || [],
         };
       })
     );
@@ -193,12 +188,7 @@ export default function ActiveWorkoutScreen() {
     }
   };
 
-  const handleDeleteSet = async (setId: string, swipeableRef?: React.RefObject<Swipeable | null>) => {
-    // Close the swipeable first for better UX
-    if (swipeableRef?.current) {
-      swipeableRef.current.close();
-    }
-
+  const handleDeleteSet = async (setId: string) => {
     const { error } = await supabase
       .from('sets')
       .delete()
@@ -212,8 +202,7 @@ export default function ActiveWorkoutScreen() {
   const renderRightActions = (
     progress: Animated.AnimatedInterpolation<number>,
     dragX: Animated.AnimatedInterpolation<number>,
-    setId: string,
-    swipeableRef: React.RefObject<Swipeable | null>
+    setId: string
   ) => {
     const scale = dragX.interpolate({
       inputRange: [-80, 0],
@@ -224,7 +213,7 @@ export default function ActiveWorkoutScreen() {
     return (
       <TouchableOpacity
         style={styles.deleteAction}
-        onPress={() => handleDeleteSet(setId, swipeableRef)}
+        onPress={() => handleDeleteSet(setId)}
       >
         <Animated.View style={{ transform: [{ scale }] }}>
           <Text style={styles.deleteActionText}>Delete</Text>
@@ -233,7 +222,19 @@ export default function ActiveWorkoutScreen() {
     );
   };
 
+  // Check if any sets have been added
+  const hasAnySets = workout?.workout_exercises.some(ex => ex.sets.length > 0) || false;
+
   const handleCompleteWorkout = async () => {
+    if (!hasAnySets) {
+      Alert.alert(
+        'No Sets Added',
+        'Please add at least one set before completing the workout.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     const { error } = await supabase
       .from('workouts')
       .update({
@@ -268,6 +269,70 @@ export default function ActiveWorkoutScreen() {
     );
   };
 
+  const handleAddStage = async () => {
+    if (!workout) return;
+
+    const maxSortOrder = Math.max(...(workout.workout_stages.map(s => s.sort_order || 0)), -1);
+
+    const { error } = await supabase
+      .from('workout_stages')
+      .insert({
+        workout_id: workoutId,
+        name: 'New Stage',
+        sort_order: maxSortOrder + 1,
+      });
+
+    if (!error) {
+      await loadWorkout();
+    }
+  };
+
+  const handleRenameStage = async (stageId: string, newName: string) => {
+    const { error } = await supabase
+      .from('workout_stages')
+      .update({ name: newName })
+      .eq('id', stageId);
+
+    if (!error) {
+      await loadWorkout();
+    }
+  };
+
+  const handleDeleteStage = async (stageId: string) => {
+    if (!workout || workout.workout_stages.length <= 1) {
+      Alert.alert('Cannot Delete', 'Workouts must have at least one stage.');
+      return;
+    }
+
+    // Find remaining stage to move exercises to
+    const remainingStage = workout.workout_stages.find(s => s.id !== stageId);
+    if (!remainingStage) return;
+
+    Alert.alert(
+      'Delete Stage',
+      'Exercises in this stage will be moved to the remaining stage. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            // Move exercises to remaining stage
+            await supabase
+              .from('workout_exercises')
+              .update({ stage_id: remainingStage.id })
+              .eq('stage_id', stageId);
+
+            // Delete the stage
+            await supabase.from('workout_stages').delete().eq('id', stageId);
+
+            await loadWorkout();
+          },
+        },
+      ]
+    );
+  };
+
   if (loading || !workout) {
     return (
       <View style={styles.container}>
@@ -275,6 +340,15 @@ export default function ActiveWorkoutScreen() {
       </View>
     );
   }
+
+  // Group exercises by stage
+  const sortedStages = [...workout.workout_stages].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const exercisesByStage = sortedStages.map(stage => ({
+    stage,
+    exercises: workout.workout_exercises
+      .filter(ex => ex.stage_id === stage.id)
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+  }));
 
   return (
     <View style={styles.container}>
@@ -288,11 +362,31 @@ export default function ActiveWorkoutScreen() {
         </Text>
       </View>
 
-      {/* Exercises */}
+      {/* Exercises Grouped by Stage */}
       <ScrollView style={styles.content}>
-        {workout.workout_exercises
-          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-          .map((exercise, index) => (
+        {exercisesByStage.map(({ stage, exercises }) => (
+          <View key={stage.id} style={styles.stageContainer}>
+            {/* Stage Header */}
+            <View style={styles.stageHeader}>
+              <TextInput
+                style={styles.stageNameInput}
+                value={stage.name || 'Unnamed Stage'}
+                onChangeText={(text) => handleRenameStage(stage.id, text)}
+                placeholder="Stage Name"
+                placeholderTextColor="#888"
+              />
+              {workout.workout_stages.length > 1 && (
+                <TouchableOpacity
+                  onPress={() => handleDeleteStage(stage.id)}
+                  style={styles.deleteStageButton}
+                >
+                  <Text style={styles.deleteStageText}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Exercises in this stage */}
+            {exercises.map((exercise, index) => (
             <View key={exercise.id} style={styles.exerciseBlock}>
               <View style={styles.exerciseHeader}>
                 <View>
@@ -327,14 +421,11 @@ export default function ActiveWorkoutScreen() {
                     ? `${previousSet.reps} x ${previousSet.weight} lbs`
                     : '-';
 
-                  const swipeableRef = useRef<Swipeable>(null);
-
                   return (
                     <Swipeable
                       key={set.id}
-                      ref={swipeableRef}
                       renderRightActions={(progress, dragX) =>
-                        renderRightActions(progress, dragX, set.id, swipeableRef)
+                        renderRightActions(progress, dragX, set.id)
                       }
                       overshootRight={false}
                       friction={2}
@@ -383,7 +474,14 @@ export default function ActiveWorkoutScreen() {
                 <Text style={styles.addSetText}>+ Add Set</Text>
               </TouchableOpacity>
             </View>
-          ))}
+            ))}
+          </View>
+        ))}
+
+        {/* Add Stage Button */}
+        <TouchableOpacity style={styles.addStageButton} onPress={handleAddStage}>
+          <Text style={styles.addStageText}>+ Add Stage</Text>
+        </TouchableOpacity>
 
         {/* Notes */}
         <View style={styles.notesSection}>
@@ -401,8 +499,14 @@ export default function ActiveWorkoutScreen() {
 
       {/* Footer */}
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.completeButton} onPress={handleCompleteWorkout}>
-          <Text style={styles.completeButtonText}>Complete Workout</Text>
+        <TouchableOpacity
+          style={[styles.completeButton, !hasAnySets && styles.completeButtonDisabled]}
+          onPress={handleCompleteWorkout}
+          disabled={!hasAnySets}
+        >
+          <Text style={[styles.completeButtonText, !hasAnySets && styles.completeButtonTextDisabled]}>
+            Complete Workout
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={handleCancelWorkout}>
           <Text style={styles.cancelText}>Cancel Workout</Text>
@@ -439,9 +543,49 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
-  exerciseBlock: {
-    marginVertical: 12,
+  stageContainer: {
+    marginVertical: 8,
     marginHorizontal: 20,
+  },
+  stageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    backgroundColor: '#3A3A3A',
+    borderRadius: 8,
+  },
+  stageNameInput: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    padding: 0,
+  },
+  deleteStageButton: {
+    padding: 8,
+  },
+  deleteStageText: {
+    fontSize: 18,
+    color: '#CC3333',
+  },
+  addStageButton: {
+    marginHorizontal: 20,
+    marginVertical: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#2A2A2A',
+    borderRadius: 8,
+  },
+  addStageText: {
+    color: '#888888',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  exerciseBlock: {
+    marginVertical: 8,
     backgroundColor: '#2A2A2A',
     borderRadius: 12,
     padding: 16,
@@ -559,11 +703,18 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 12,
   },
+  completeButtonDisabled: {
+    backgroundColor: '#2A2A2A',
+    opacity: 0.5,
+  },
   completeButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  completeButtonTextDisabled: {
+    color: '#888888',
   },
   cancelText: {
     color: '#CC3333',

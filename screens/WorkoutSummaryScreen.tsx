@@ -53,7 +53,7 @@ export default function WorkoutSummaryScreen() {
         workout_exercises (
           id,
           exercise_variation_id,
-          order_index,
+          sort_order,
           exercise_variations (
             id,
             equipment,
@@ -68,7 +68,7 @@ export default function WorkoutSummaryScreen() {
             set_number,
             reps,
             weight,
-            completed
+            is_completed
           )
         )
       `)
@@ -91,7 +91,7 @@ export default function WorkoutSummaryScreen() {
 
   const totalExercises = workout.workout_exercises.length;
   const totalSets = workout.workout_exercises.reduce(
-    (sum, ex) => sum + ex.sets.filter(s => s.completed).length,
+    (sum, ex) => sum + ex.sets.filter(s => s.is_completed).length,
     0
   );
   const totalReps = workout.workout_exercises.reduce(
@@ -146,9 +146,9 @@ export default function WorkoutSummaryScreen() {
       {/* Exercises */}
       <ScrollView style={styles.content}>
         {workout.workout_exercises
-          .sort((a, b) => a.order_index - b.order_index)
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
           .map((exercise, index) => {
-            const completedSets = exercise.sets.filter(s => s.completed);
+            const completedSets = exercise.sets.filter(s => s.is_completed);
             const exerciseVolume = calculateVolume(
               completedSets.map(s => ({ reps: s.reps || 0, weight: s.weight || 0 }))
             );
