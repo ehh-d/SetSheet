@@ -14,9 +14,10 @@ Core workout flow has been implemented:
    - Sign out functionality
 
 2. **Home Screen**
-   - Week view calendar with horizontal scroll
-   - Dots under dates with completed workouts
-   - Selected date highlighting
+   - List-view calendar drawer with pull-down gesture
+   - Collapsed view shows current day
+   - Expanded view shows full workout history
+   - Tap workout to view summary or continue active workout
    - "Start a Sheet" button when no workout exists
    - FAB stack for quick actions (Library, New Sheet, Upload Template)
 
@@ -34,11 +35,13 @@ Core workout flow has been implemented:
 
 5. **Active Workout**
    - Exercise blocks with set tables
-   - Add/remove sets dynamically
+   - Add/remove sets dynamically with swipe-to-delete
    - Input reps and weight per set
+   - Previous workout data auto-populated for reference
+   - Stage management with drag-to-reorder exercises
    - Mark sets as completed
    - Add notes to workout
-   - Complete or cancel workout
+   - Complete or cancel workout (validation prevents completing without sets)
 
 6. **Workout Summary**
    - Stats: Exercises, Total Sets, Total Reps, Total Volume
@@ -97,12 +100,12 @@ The app connects to the Supabase instance:
 ## Testing the Flow
 
 1. **Login** with one of the test accounts
-2. **Select a date** from the week view
+2. **Pull down calendar drawer** to see workout history (or keep collapsed for today)
 3. **Start a Sheet** → Choose a category
 4. **Search exercises** → Select exercises and equipment
-5. **Start Workout** → Log sets with reps and weight
+5. **Start Workout** → Log sets with reps and weight (see previous workout data)
 6. **Complete Workout** → View summary with stats
-7. **Navigate Home** → See completed workout on calendar
+7. **Navigate Home** → See completed workout in calendar list
 
 ## Phase 2 - COMPLETE ✅
 
@@ -115,12 +118,13 @@ Polish and enhanced user experience features have been implemented:
    - Shows reps × weight from last completed workout with same exercise
    - Helps users track progressive overload
 
-2. **Calendar Expansion**
-   - **Week View** - Original horizontal week scroll (default)
-   - **Month View** - 3-month calendar grid with workout indicators
-   - **List View** - Chronological workout history grouped by month
-   - View mode toggle buttons in header
-   - Tap dates to navigate between views
+2. **Calendar Drawer (Simplified)**
+   - **List View** - Chronological workout history with pull-down gesture
+   - Collapsed state shows current day
+   - Expanded state shows full workout history (scrollable)
+   - Tap workout row to view summary or continue active workout
+   - Bottom-anchored calendar content
+   - Drawer overlay floats above page content
 
 3. **Exercise Filtering**
    - Horizontal scrollable muscle group filter chips
@@ -191,14 +195,15 @@ Template functionality has been implemented:
 - [x] ~~Show active workouts on home screen~~ ✅ Fixed 2026-01-25
 
 ### Medium Priority (P1) - UX Improvements
-- [ ] Calendar infinite scrolling (currently limited to 7-day week view)
+- [x] ~~Calendar panel expansion (pull-down panel)~~ ✅ Completed 2026-01-26
 - [ ] Prevent starting workouts on future dates
 - [ ] +/× button visibility fixes in exercise search
 - [ ] Multi-equipment exercise caret vs + button placement refinement
-- [ ] Calendar panel expansion (pull-down panel, month grid tap behavior)
 - [ ] Filter panel for exercise search
+- [ ] Stage assignment in ExerciseSearchScreen (allow assigning exercises to stages before starting workout)
 
 ### Low Priority (P2) - Advanced Features
+- [ ] Proposed weight auto-suggest based on previous workout
 - [ ] Exercise detail modals with full descriptions
 - [ ] Exercise Library browse mode
 - [ ] PR detection with visual indicators (backend ready, UI not implemented)
@@ -257,9 +262,10 @@ npx supabase gen types typescript \
 - Use service_role key script (see `ReadMe & Documentation/SUPABASE_ADMIN.md` for template)
 - Deletes in order: sets → personal_records → workout_exercises → workout_stages → workouts
 
-**Database optimization recommendations:**
-- Indexes on: workouts(user_id, workout_date), exercises(muscle_group, name)
-- Function for previous workout lookup
+**Database optimizations (implemented 2026-01-26):**
+- ✅ Indexes: workouts(user_id, workout_date), exercises(muscle_group, name)
+- ✅ Function: `get_previous_workout_sets()` for efficient lookups
+- ✅ Check constraints: valid reps (1-1000), weight (0-10000), set_number (>0)
 - See `ReadMe & Documentation/SUPABASE_ADMIN.md` for SQL scripts
 
 ## Development Notes
@@ -285,20 +291,33 @@ npx supabase gen types typescript \
 - Schema Cache: Always regenerate types after dashboard schema changes
 - Column Names: Code must match database exactly (see recent fixes in `ReadMe & Documentation/CHANGELOG.md`)
 
-## Recent Fixes (2026-01-25)
+## Recent Updates
 
-### Critical Bugs Fixed
+### 2026-01-25 - Critical Fixes
 - ✅ React Hooks error when adding sets (useRef in map)
 - ✅ Schema cache column name mismatches (sort_order, proposed_*, is_completed)
 - ✅ Blank screen on workout summary
 - ✅ Home screen not showing active workouts
 - ✅ Duplicate exercise selection
 - ✅ Complete button now disabled when no sets added
-
-### Behavior Changes
-- ❌ No auto-deletion of workouts (user data preservation)
 - ✅ Navigate to existing workout instead of creating duplicates
 - ✅ Visual feedback for selected exercises (white background + X)
+- ❌ No auto-deletion of workouts (user data preservation)
+
+### 2026-01-26 - Database & UI Improvements
+- ✅ Added critical database indexes for performance optimization
+  - `idx_workouts_user_date` on workouts(user_id, workout_date)
+  - `idx_exercises_muscle_group` on exercises(muscle_group)
+  - `idx_exercises_name` on exercises(name)
+- ✅ Created `get_previous_workout_sets()` database function for efficient previous workout lookups
+- ✅ Updated ActiveWorkoutScreen to use optimized database function
+- ✅ Added stage management UI to ActiveWorkoutScreen with drag-to-reorder
+- ✅ Added database check constraints for data integrity (valid reps, weight, set numbers)
+- ✅ Simplified home screen calendar to list-only view (removed grid mode)
+  - Drawer overlay with pull-down gesture
+  - Collapsed: shows today's date
+  - Expanded: shows full workout history (scrollable)
+  - Bottom-anchored calendar content
 
 **See `ReadMe & Documentation/CHANGELOG.md` for complete history**
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,10 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  Animated,
+  PanResponder,
 } from 'react-native';
-import { format, startOfWeek, addDays, isSameDay, startOfMonth, endOfMonth, eachDayOfInterval, getDay, subMonths, addMonths } from 'date-fns';
+import { format, startOfWeek, addDays, isSameDay, startOfMonth, endOfMonth, eachDayOfInterval, getDay, subMonths, addMonths, subDays } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Workout } from '../types';
@@ -17,44 +19,51 @@ import { RootStackParamList } from '../types';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
-type ViewMode = 'week' | 'month' | 'list';
+type DrawerState = 'collapsed' | 'expanded';
 
 export default function HomeScreen() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<ViewMode>('week');
+  const [drawerState, setDrawerState] = useState<DrawerState>('collapsed');
   const { session, signOut } = useAuth();
   const navigation = useNavigation<HomeScreenNavigationProp>();
 
-  const weekStart = startOfWeek(selectedDate, { weekStartsOn: 0 });
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  // Drawer animation
+  const [viewportHeight, setViewportHeight] = useState(800); // Will be set dynamically
+  const drawerHeight = useRef(new Animated.Value(120)).current;
+
+  const COLLAPSED_HEIGHT = 120; // 1 day + controls
+  const EXPANDED_HEIGHT = 600; // Full list
+
+  // Generate weeks (each week is an array of 7 days)
+  const generateWeeks = (numWeeks: number = 8) => {
+    const weeks = [];
+    const today = new Date();
+    const startDate = startOfWeek(subDays(today, numWeeks * 7), { weekStartsOn: 0 });
+
+    for (let i = 0; i < numWeeks * 2 + 1; i++) {
+      const weekStart = addDays(startDate, i * 7);
+      const week = Array.from({ length: 7 }, (_, dayIndex) => addDays(weekStart, dayIndex));
+      weeks.push(week);
+    }
+    return weeks;
+  };
+
+  const [currentWeekIndex, setCurrentWeekIndex] = useState(8); // Start at middle week (today)
+  const allWeeks = generateWeeks(8);
 
   useEffect(() => {
     loadWorkouts();
-  }, [selectedDate, viewMode]);
+  }, [selectedDate, drawerState]);
 
   const loadWorkouts = async () => {
     if (!session?.user) return;
 
-    let startDate: string;
-    let endDate: string;
-
-    if (viewMode === 'week') {
-      startDate = format(weekDays[0], 'yyyy-MM-dd');
-      endDate = format(weekDays[6], 'yyyy-MM-dd');
-    } else if (viewMode === 'month') {
-      // Load 3 months of data for the calendar
-      const prevMonth = subMonths(selectedDate, 1);
-      const nextMonth = addMonths(selectedDate, 1);
-      startDate = format(startOfMonth(prevMonth), 'yyyy-MM-dd');
-      endDate = format(endOfMonth(nextMonth), 'yyyy-MM-dd');
-    } else {
-      // List view - load last 3 months
-      const threeMonthsAgo = subMonths(new Date(), 3);
-      startDate = format(threeMonthsAgo, 'yyyy-MM-dd');
-      endDate = format(new Date(), 'yyyy-MM-dd');
-    }
+    // Load last 3 months for list view
+    const threeMonthsAgo = subMonths(new Date(), 3);
+    const startDate = format(threeMonthsAgo, 'yyyy-MM-dd');
+    const endDate = format(new Date(), 'yyyy-MM-dd');
 
     const { data, error } = await supabase
       .from('workouts')
@@ -101,119 +110,125 @@ export default function HomeScreen() {
     navigation.navigate('ExerciseLibrary');
   };
 
-  const renderMonthView = () => {
-    const monthsToShow = [subMonths(selectedDate, 1), selectedDate, addMonths(selectedDate, 1)];
+  // Pan responder for drawer drag
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, gestureState) => {
+        // Only allow dragging down (positive dy)
+        if (gestureState.dy > 0) {
+          const currentHeight = drawerState === 'collapsed' ? COLLAPSED_HEIGHT : EXPANDED_HEIGHT;
+          const newHeight = currentHeight + gestureState.dy;
+          const maxHeight = EXPANDED_HEIGHT;
 
-    return (
-      <ScrollView style={styles.monthScrollContainer}>
-        {monthsToShow.map((monthDate, monthIndex) => {
-          const monthStart = startOfMonth(monthDate);
-          const monthEnd = endOfMonth(monthDate);
-          const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
-          const firstDayOfWeek = getDay(monthStart);
+          drawerHeight.setValue(Math.min(newHeight, maxHeight));
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        // Determine next state based on drag distance
+        if (gestureState.dy > 50) {
+          // Dragged down enough to toggle
+          toggleDrawer();
+        } else {
+          // Snap back to current state
+          animateToState(drawerState);
+        }
+      },
+    })
+  ).current;
 
-          // Add empty cells for days before the first day of the month
-          const emptyCells = Array(firstDayOfWeek).fill(null);
-          const allCells = [...emptyCells, ...daysInMonth];
+  const animateToState = (state: DrawerState) => {
+    const targetHeight = state === 'collapsed' ? COLLAPSED_HEIGHT : EXPANDED_HEIGHT;
 
-          return (
-            <View key={monthIndex} style={styles.monthContainer}>
-              <Text style={styles.monthLabel}>{format(monthDate, 'MMMM yyyy')}</Text>
-              <View style={styles.monthGrid}>
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                  <View key={day} style={styles.monthDayHeader}>
-                    <Text style={styles.monthDayHeaderText}>{day}</Text>
-                  </View>
-                ))}
-                {allCells.map((day, index) => {
-                  if (!day) {
-                    return <View key={`empty-${index}`} style={styles.monthDayCell} />;
-                  }
-
-                  const isSelected = isSameDay(day, selectedDate);
-                  const hasWorkout = hasCompletedWorkout(day);
-
-                  return (
-                    <TouchableOpacity
-                      key={index}
-                      style={[styles.monthDayCell, isSelected && styles.monthDayCellSelected]}
-                      onPress={() => {
-                        setSelectedDate(day);
-                        setViewMode('week');
-                      }}
-                    >
-                      <Text style={[styles.monthDayText, isSelected && styles.monthDayTextSelected]}>
-                        {format(day, 'd')}
-                      </Text>
-                      {hasWorkout && <View style={styles.monthWorkoutDot} />}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          );
-        })}
-      </ScrollView>
-    );
+    Animated.spring(drawerHeight, {
+      toValue: targetHeight,
+      useNativeDriver: false,
+      tension: 50,
+      friction: 8,
+    }).start();
   };
 
-  const renderListView = () => {
-    const groupedWorkouts: { [key: string]: Workout[] } = {};
+  const toggleDrawer = () => {
+    const newState = drawerState === 'collapsed' ? 'expanded' : 'collapsed';
+    setDrawerState(newState);
+    animateToState(newState);
+  };
 
-    workouts.forEach((workout) => {
-      const monthKey = format(new Date(workout.workout_date), 'MMMM yyyy');
-      if (!groupedWorkouts[monthKey]) {
-        groupedWorkouts[monthKey] = [];
-      }
-      groupedWorkouts[monthKey].push(workout);
-    });
+  // Render list mode (each day is a full row)
+  const renderListView = () => {
+    // Get all days from weeks up to current
+    const weeksToShow = allWeeks.slice(0, currentWeekIndex + 1);
+    const allDays = weeksToShow.flat();
+
+    // Show different number of days based on drawer state
+    let daysToShow: Date[] = [];
+
+    if (drawerState === 'collapsed') {
+      // Show only most recent day (today)
+      daysToShow = [allDays[allDays.length - 1]];
+    } else {
+      // Show all days
+      daysToShow = allDays;
+    }
+
+    const isScrollable = drawerState === 'expanded';
 
     return (
-      <ScrollView style={styles.listContainer}>
-        {Object.entries(groupedWorkouts).map(([month, monthWorkouts]) => (
-          <View key={month}>
-            <Text style={styles.listMonthHeader}>{month}</Text>
-            {monthWorkouts.map((workout) => {
-              const workoutDate = new Date(workout.workout_date);
-              const dayOfMonth = format(workoutDate, 'd');
-              const ordinalSuffix =
-                dayOfMonth.endsWith('1') && dayOfMonth !== '11' ? 'st' :
-                dayOfMonth.endsWith('2') && dayOfMonth !== '12' ? 'nd' :
-                dayOfMonth.endsWith('3') && dayOfMonth !== '13' ? 'rd' : 'th';
+      <View style={styles.listContainer}>
+        <ScrollView
+          scrollEnabled={isScrollable}
+          showsVerticalScrollIndicator={isScrollable}
+          contentContainerStyle={[
+            styles.listContent,
+            !isScrollable && { flexGrow: 1, justifyContent: 'flex-end' }
+          ]}
+        >
+          {daysToShow.map((day, index) => {
+          const workout = getWorkoutForDate(day);
+          const isToday = isSameDay(day, new Date());
 
-              return (
-                <TouchableOpacity
-                  key={workout.id}
-                  style={styles.listItem}
-                  onPress={() => {
-                    if (workout.status === 'completed') {
-                      navigation.navigate('WorkoutSummary', { workoutId: workout.id });
-                    } else {
-                      navigation.navigate('ActiveWorkout', { workoutId: workout.id });
-                    }
-                  }}
-                >
-                  <View style={styles.listItemLeft}>
-                    <Text style={styles.listItemDate}>
-                      {dayOfMonth}
-                      <Text style={styles.listItemOrdinal}>{ordinalSuffix}</Text>
-                    </Text>
-                  </View>
-                  <View style={styles.listItemRight}>
-                    <Text style={styles.listItemTitle}>
+          return (
+            <TouchableOpacity
+              key={index}
+              style={styles.listDayRow}
+              onPress={() => {
+                if (workout) {
+                  if (workout.status === 'completed') {
+                    navigation.navigate('WorkoutSummary', { workoutId: workout.id });
+                  } else {
+                    navigation.navigate('ActiveWorkout', { workoutId: workout.id });
+                  }
+                } else {
+                  setSelectedDate(day);
+                }
+              }}
+            >
+              <View style={styles.listDayLeft}>
+                <Text style={styles.listDayName}>{format(day, 'EEE')}</Text>
+                <Text style={styles.listDayDate}>{format(day, 'MMM d')}</Text>
+                {isToday && <Text style={styles.listTodayBadge}>Today</Text>}
+              </View>
+              <View style={styles.listDayRight}>
+                {workout ? (
+                  <>
+                    <Text style={styles.listWorkoutName}>
                       {workout.name || 'Workout'}
                     </Text>
                     {workout.status === 'completed' && (
-                      <View style={styles.listItemDot} />
+                      <View style={styles.listWorkoutDot} />
                     )}
-                  </View>
-                  <Text style={styles.listItemChevron}>›</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ))}
-      </ScrollView>
+                  </>
+                ) : (
+                  <Text style={styles.listNoWorkout}>No workout</Text>
+                )}
+              </View>
+              <Text style={styles.listChevron}>›</Text>
+            </TouchableOpacity>
+          );
+        })}
+        </ScrollView>
+      </View>
     );
   };
 
@@ -221,9 +236,7 @@ export default function HomeScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>
-          {viewMode === 'month' ? format(selectedDate, 'MMMM') : viewMode === 'week' ? format(selectedDate, 'MMMM') : 'History'}
-        </Text>
+        <View style={styles.headerLeft} />
         <View style={styles.headerRight}>
           <TouchableOpacity onPress={signOut}>
             <Text style={styles.signOutText}>Sign Out</Text>
@@ -231,100 +244,60 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* View Mode Toggle */}
-      <View style={styles.viewModeToggle}>
-        <TouchableOpacity
-          style={[styles.viewModeButton, viewMode === 'week' && styles.viewModeButtonActive]}
-          onPress={() => setViewMode('week')}
+      {/* Sliding Drawer - List View */}
+      <View style={styles.drawerWrapper}>
+        <Animated.View
+          style={[styles.drawerContainer, { height: drawerHeight }]}
+          {...panResponder.panHandlers}
         >
-          <Text style={[styles.viewModeText, viewMode === 'week' && styles.viewModeTextActive]}>—</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.viewModeButton, viewMode === 'month' && styles.viewModeButtonActive]}
-          onPress={() => setViewMode('month')}
-        >
-          <Text style={[styles.viewModeText, viewMode === 'month' && styles.viewModeTextActive]}>▦</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.viewModeButton, viewMode === 'list' && styles.viewModeButtonActive]}
-          onPress={() => setViewMode('list')}
-        >
-          <Text style={[styles.viewModeText, viewMode === 'list' && styles.viewModeTextActive]}>☰</Text>
-        </TouchableOpacity>
+          {/* List Content */}
+          <View style={styles.drawerContent}>
+            {renderListView()}
+          </View>
+
+          {/* Pull Handle - Fixed at bottom */}
+          <View style={styles.drawerControls}>
+            <View style={styles.pullHandle} />
+          </View>
+        </Animated.View>
       </View>
 
-      {/* Week View */}
-      {viewMode === 'week' && (
-        <View style={styles.weekContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {weekDays.map((day, index) => {
-              const isSelected = isSameDay(day, selectedDate);
-              const hasWorkout = hasCompletedWorkout(day);
-
-              return (
-                <TouchableOpacity
-                  key={index}
-                  style={[styles.dayCard, isSelected && styles.dayCardSelected]}
-                  onPress={() => setSelectedDate(day)}
-                >
-                  <Text style={[styles.dayName, isSelected && styles.dayNameSelected]}>
-                    {format(day, 'EEE')}
-                  </Text>
-                  <Text style={[styles.dayNumber, isSelected && styles.dayNumberSelected]}>
-                    {format(day, 'd')}
-                  </Text>
-                  {hasWorkout && <View style={styles.workoutDot} />}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-      )}
-
-      {/* Month View */}
-      {viewMode === 'month' && renderMonthView()}
-
-      {/* List View */}
-      {viewMode === 'list' && renderListView()}
-
-      {/* Content Area - Only in Week View */}
-      {viewMode === 'week' && (
-        <View style={styles.content}>
-          {loading ? (
-            <ActivityIndicator size="large" color="#FFFFFF" />
-          ) : selectedWorkout ? (
-            <View style={styles.workoutSummary}>
-              <Text style={styles.workoutName}>
-                {selectedWorkout.name || (selectedWorkout.status === 'completed' ? 'Workout Completed' : 'Workout in Progress')}
+      {/* Content Area */}
+      <View style={styles.content}>
+        {loading ? (
+          <ActivityIndicator size="large" color="#FFFFFF" />
+        ) : selectedWorkout ? (
+          <View style={styles.workoutSummary}>
+            <Text style={styles.workoutName}>
+              {selectedWorkout.name || (selectedWorkout.status === 'completed' ? 'Workout Completed' : 'Workout in Progress')}
+            </Text>
+            <Text style={styles.workoutDate}>
+              {format(selectedDate, 'MMMM d, yyyy')}
+            </Text>
+            <TouchableOpacity
+              style={styles.viewButton}
+              onPress={() => {
+                if (selectedWorkout.status === 'completed') {
+                  navigation.navigate('WorkoutSummary', { workoutId: selectedWorkout.id });
+                } else {
+                  navigation.navigate('ActiveWorkout', { workoutId: selectedWorkout.id });
+                }
+              }}
+            >
+              <Text style={styles.viewButtonText}>
+                {selectedWorkout.status === 'completed' ? 'View Workout' : 'Continue Workout'}
               </Text>
-              <Text style={styles.workoutDate}>
-                {format(selectedDate, 'MMMM d, yyyy')}
-              </Text>
-              <TouchableOpacity
-                style={styles.viewButton}
-                onPress={() => {
-                  if (selectedWorkout.status === 'completed') {
-                    navigation.navigate('WorkoutSummary', { workoutId: selectedWorkout.id });
-                  } else {
-                    navigation.navigate('ActiveWorkout', { workoutId: selectedWorkout.id });
-                  }
-                }}
-              >
-                <Text style={styles.viewButtonText}>
-                  {selectedWorkout.status === 'completed' ? 'View Workout' : 'Continue Workout'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.noWorkout}>
-              <Text style={styles.noWorkoutText}>No sheet started</Text>
-              <TouchableOpacity style={styles.startButton} onPress={handleStartSheet}>
-                <Text style={styles.startButtonText}>Start a Sheet</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      )}
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.noWorkout}>
+            <Text style={styles.noWorkoutText}>No sheet started</Text>
+            <TouchableOpacity style={styles.startButton} onPress={handleStartSheet}>
+              <Text style={styles.startButtonText}>Start a Sheet</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
 
       {/* FAB Stack */}
       <View style={styles.fabStack}>
@@ -354,10 +327,8 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 60,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+  headerLeft: {
+    flex: 1,
   },
   headerRight: {
     flexDirection: 'row',
@@ -367,66 +338,42 @@ const styles = StyleSheet.create({
     color: '#888888',
     fontSize: 14,
   },
-  viewModeToggle: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 20,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
-  viewModeButton: {
+  // Drawer Styles
+  drawerWrapper: {
+    position: 'absolute',
+    top: 100,
+    left: 0,
+    right: 0,
     padding: 8,
+    zIndex: 10,
   },
-  viewModeButtonActive: {
-    opacity: 1,
-  },
-  viewModeText: {
-    fontSize: 20,
-    color: '#888888',
-  },
-  viewModeTextActive: {
-    color: '#FFFFFF',
-  },
-  weekContainer: {
-    paddingVertical: 20,
-    paddingHorizontal: 10,
-  },
-  dayCard: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginHorizontal: 4,
+  drawerContainer: {
+    backgroundColor: '#1A1A1A',
     borderRadius: 12,
-    backgroundColor: '#2A2A2A',
-    minWidth: 60,
+    overflow: 'hidden',
   },
-  dayCardSelected: {
-    backgroundColor: '#FFFFFF',
+  drawerContent: {
+    flex: 1,
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
   },
-  dayName: {
-    fontSize: 12,
-    color: '#888888',
-    marginBottom: 4,
+  drawerControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#2A2A2A',
   },
-  dayNameSelected: {
-    color: '#1A1A1A',
-  },
-  dayNumber: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  dayNumberSelected: {
-    color: '#1A1A1A',
-  },
-  workoutDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#33CC33',
-    marginTop: 4,
+  pullHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#444444',
+    position: 'absolute',
+    left: '50%',
+    marginLeft: -20,
   },
   content: {
     flex: 1,
@@ -500,76 +447,17 @@ const styles = StyleSheet.create({
   fabText: {
     fontSize: 24,
   },
-  // Month View Styles
-  monthScrollContainer: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  monthContainer: {
-    marginBottom: 30,
-  },
-  monthLabel: {
-    fontSize: 14,
-    color: '#888888',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  monthGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  monthDayHeader: {
-    width: '14.28%',
-    aspectRatio: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  monthDayHeaderText: {
-    fontSize: 11,
-    color: '#888888',
-    fontWeight: '600',
-  },
-  monthDayCell: {
-    width: '14.28%',
-    aspectRatio: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  monthDayCellSelected: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-  },
-  monthDayText: {
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  monthDayTextSelected: {
-    color: '#1A1A1A',
-    fontWeight: 'bold',
-  },
-  monthWorkoutDot: {
-    position: 'absolute',
-    bottom: 4,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#33CC33',
-  },
   // List View Styles
   listContainer: {
     flex: 1,
-    paddingHorizontal: 20,
+    justifyContent: 'flex-end',
   },
-  listMonthHeader: {
-    fontSize: 14,
-    color: '#888888',
-    marginTop: 20,
-    marginBottom: 12,
-    marginLeft: 10,
+  listContent: {
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    flexGrow: 0,
   },
-  listItem: {
+  listDayRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#2A2A2A',
@@ -577,36 +465,48 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 8,
   },
-  listItemLeft: {
+  listDayLeft: {
     marginRight: 16,
+    minWidth: 80,
   },
-  listItemDate: {
-    fontSize: 24,
+  listDayName: {
+    fontSize: 14,
+    color: '#888888',
+    marginBottom: 2,
+  },
+  listDayDate: {
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
-  listItemOrdinal: {
-    fontSize: 12,
-    color: '#888888',
+  listTodayBadge: {
+    fontSize: 10,
+    color: '#33CC33',
+    marginTop: 2,
   },
-  listItemRight: {
+  listDayRight: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
   },
-  listItemTitle: {
+  listWorkoutName: {
     fontSize: 16,
     color: '#FFFFFF',
     flex: 1,
   },
-  listItemDot: {
+  listNoWorkout: {
+    fontSize: 14,
+    color: '#666666',
+    flex: 1,
+  },
+  listWorkoutDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
     backgroundColor: '#33CC33',
     marginLeft: 8,
   },
-  listItemChevron: {
+  listChevron: {
     fontSize: 24,
     color: '#888888',
     marginLeft: 12,
