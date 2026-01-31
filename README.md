@@ -291,6 +291,37 @@ npx supabase gen types typescript \
 - Schema Cache: Always regenerate types after dashboard schema changes
 - Column Names: Code must match database exactly (see recent fixes in `ReadMe & Documentation/CHANGELOG.md`)
 
+## Current Work In Progress
+
+### Calendar Panel Refactor (2026-01-30)
+
+**Status:** Partially complete - basic functionality working, needs gesture refinement
+
+**Quick Resume:**
+1. Run `npx expo start --clear`
+2. Main files to work on:
+   - `/components/CalendarPanel.tsx` - Panel gestures & states
+   - `/components/CalendarDateRow.tsx` - Row styling
+   - `/hooks/useCalendarDates.ts` - Data loading
+
+**What's Working:**
+- Panel expands/collapses with pull gesture on handle
+- Dates display in correct order (oldest top, today bottom)
+- Month labels with timeline on left side
+- Lazy loading hook ready (triggers at 2-week threshold)
+
+**What's NOT Working Yet:**
+- Panel bottom not docking at viewport bottom in "open" state
+- Extended scroll state (pulling beyond open to see history)
+- Collapse only when at bottom of scroll list
+- Need to verify content anchors to bottom properly
+
+**Design Reference:** See `/App Comps/Calendar List*.jpg`
+
+**Technical Constraint:** Cannot use react-native-reanimated (Expo Go version mismatch: JS 0.7.2 vs native 0.5.1). Using RN built-in Animated API instead.
+
+---
+
 ## Recent Updates
 
 ### 2026-01-25 - Critical Fixes

@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { format } from 'date-fns';
 import { RootStackParamList } from '../types';
 import { parseTemplate, validateTemplate } from '../utils/templateParser';
 import { supabase } from '../lib/supabase';
@@ -25,7 +26,8 @@ type UploadTemplateScreenRouteProp = RouteProp<RootStackParamList, 'UploadTempla
 export default function UploadTemplateScreen() {
   const navigation = useNavigation<UploadTemplateScreenNavigationProp>();
   const route = useRoute<UploadTemplateScreenRouteProp>();
-  const { date } = route.params;
+  // Default to today if accessed from tab (no params)
+  const date = route.params?.date ?? format(new Date(), 'yyyy-MM-dd');
 
   const [templateText, setTemplateText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -82,9 +84,13 @@ Face Pulls 3x15-20`;
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>‹ Back</Text>
-        </TouchableOpacity>
+        {route.params?.date ? (
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Text style={styles.backText}>‹ Back</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 60 }} />
+        )}
         <Text style={styles.headerTitle}>Upload Template</Text>
         <TouchableOpacity onPress={loadExample}>
           <Text style={styles.exampleButton}>Example</Text>

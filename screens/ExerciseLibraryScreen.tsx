@@ -1,19 +1,13 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { View, Text, StyleSheet } from 'react-native';
 
 export default function ExerciseLibraryScreen() {
-  const navigation = useNavigation();
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>‹ Back</Text>
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Exercise Library</Text>
       </View>
       <View style={styles.content}>
-        <Text style={styles.title}>Exercise Library</Text>
         <Text style={styles.subtitle}>Coming in Phase 4</Text>
       </View>
     </View>
@@ -28,21 +22,19 @@ const styles = StyleSheet.create({
   header: {
     padding: 20,
     paddingTop: 60,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333333',
   },
-  backText: {
-    color: '#888888',
+  headerTitle: {
     fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   content: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,

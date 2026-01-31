@@ -29,15 +29,32 @@ export type WorkoutWithDetails = Workout & {
   workout_exercises: WorkoutExerciseWithDetails[];
 };
 
+// Calendar panel types
+export type CalendarPanelState = 'collapsed' | 'open' | 'extended';
+
+export interface CalendarDateEntry {
+  date: Date;
+  workout: Workout | null;
+  isToday: boolean;
+  monthLabel: string | null; // Only set for first date of each month
+}
+
 // Navigation types
 export type RootStackParamList = {
   Login: undefined;
-  Home: undefined;
+  MainTabs: undefined;
   CategorySelection: { date: string };
   ExerciseSearch: { categoryId: string; categoryName: string; date: string };
   ActiveWorkout: { workoutId: string };
   WorkoutSummary: { workoutId: string };
   UploadTemplate: { date: string };
   TemplatePreview: { parsedTemplate: any; date: string };
+};
+
+export type MainTabParamList = {
+  Home: undefined;
   ExerciseLibrary: undefined;
+  StartWorkout: undefined;
+  Templates: undefined;
+  Profile: undefined;
 };
