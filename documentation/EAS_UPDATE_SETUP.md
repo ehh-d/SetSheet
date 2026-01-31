@@ -1,102 +1,118 @@
 # EAS Update Setup Guide
 
 ## Overview
-Your SetSheet app is now configured to receive automatic over-the-air (OTA) updates when you push to GitHub!
 
-## Setup Steps
+EAS Update lets you push JavaScript/React changes to your app instantly without going through the App Store. When you push code to GitHub, your side-loaded development app receives the update automatically.
 
-### 1. Get Your Expo Access Token
-You need to create an access token for GitHub Actions to publish updates:
+## Privacy & Security
 
-```bash
-npx eas-cli login
-npx eas-cli whoami
-```
+**Your app is NOT public.** EAS Update only sends updates to devices that already have your specific build installed. It does not:
+- Publish your app to any app store
+- Make your app downloadable by others
+- Expose your code publicly
 
-Then create a token at: https://expo.dev/accounts/[your-account]/settings/access-tokens
-
-**Important:** Create a token with "Read and Write" permissions.
-
-### 2. Add Token to GitHub Secrets
-
-1. Go to your GitHub repository: https://github.com/ehh-d/SetSheet
-2. Click on **Settings** → **Secrets and variables** → **Actions**
-3. Click **New repository secret**
-4. Name: `EXPO_TOKEN`
-5. Value: Paste your Expo access token
-6. Click **Add secret**
-
-### 3. Rebuild Your App (One-Time)
-
-You need to rebuild your app with the update configuration:
-
-```bash
-# For iOS (internal distribution)
-npx eas-cli build --profile preview --platform ios
-
-# Or for production
-npx eas-cli build --profile production --platform ios
-```
-
-After building, install the new build on your iPhone. This version will be able to receive OTA updates.
-
-### 4. Test the Auto-Update
-
-Make a small change to your app, then:
-
-```bash
-git add .
-git commit -m "Test OTA update"
-git push
-```
-
-GitHub Actions will automatically:
-- Detect the push to main
-- Run `eas update --auto`
-- Publish the update to the production channel
-
-Your iPhone will download the update next time you open the app!
-
-## Manual Update (Alternative)
-
-You can also publish updates manually without GitHub Actions:
-
-```bash
-# Publish to production channel
-npx eas-cli update --branch production --message "Your update message"
-
-# Or let EAS auto-detect
-npx eas-cli update --auto
-```
+The Expo dashboard is only accessible with your Expo account login. Only you (and anyone you've shared your development build with) can receive these updates.
 
 ## How It Works
 
-1. **Push to GitHub** → Triggers GitHub Actions workflow
-2. **GitHub Actions** → Runs `eas update --auto`
-3. **EAS Update** → Publishes JavaScript bundle to Expo servers
-4. **Your iPhone** → Downloads update when app opens (if connected to internet)
+```
+Push to GitHub → GitHub Actions runs → EAS Update publishes → Your phone receives update
+```
 
-## Channels
+1. **You push code** to the `main` branch on GitHub
+2. **GitHub Actions** automatically runs the EAS Update workflow
+3. **EAS Update** bundles your JavaScript and uploads it to Expo's servers
+4. **Your app** downloads the update next time it opens (requires 2 app launches: first to download, second to apply)
 
-- **production**: For your live app (used by the preview/production builds)
-- **preview**: For testing updates before production
-- **development**: For development builds
+## Channels vs Branches
 
-## Important Notes
+- **Channel**: What your *built app* listens to for updates (configured at build time)
+- **Branch**: What EAS Update publishes to (configured when running `eas update`)
 
-- OTA updates only work for JavaScript/React changes
-- Native code changes (new packages, config changes) require a new build
-- Users must have the app open or restart it to receive updates
-- Updates are downloaded in the background and applied on next launch
+Your development build listens to the `development` channel, so updates must be published to that channel.
 
-## Monitoring Updates
+| Build Profile | Channel | Use Case |
+|---------------|---------|----------|
+| development | development | Local testing with development client |
+| preview | preview | Internal testing builds |
+| production | production | App Store releases |
 
-Check your updates at: https://expo.dev/accounts/[your-account]/projects/SetSheet/updates
+## Quick Reference
+
+### Updating Your App
+
+Just push to GitHub:
+```bash
+git add .
+git commit -m "Your changes"
+git push
+```
+
+The GitHub Actions workflow automatically publishes to the `development` channel.
+
+### Manual Update (if needed)
+
+```bash
+# Publish to development channel (for your side-loaded dev build)
+npx eas-cli update --channel development --message "Your update message"
+```
+
+### Receiving Updates on Your Phone
+
+1. Force-close the SetSheet app completely
+2. Reopen the app (downloads update in background)
+3. Close and reopen again (applies the update)
+
+## Initial Setup (Already Complete)
+
+These steps have already been done for this project:
+
+### 1. GitHub Secret
+The `EXPO_TOKEN` secret is configured in your GitHub repository settings.
+
+To get a new token if needed:
+1. Go to https://expo.dev/settings/access-tokens
+2. Create a token with "Read and Write" permissions
+3. Add it to GitHub: Settings → Secrets → Actions → `EXPO_TOKEN`
+
+### 2. Development Build
+Your side-loaded iOS app was built with:
+```bash
+npx eas-cli build --profile development --platform ios
+```
+
+This build is configured to receive updates from the `development` channel.
+
+## Limitations
+
+- **JavaScript only**: OTA updates only work for JavaScript/React changes
+- **Native changes require rebuild**: Adding new native packages, changing app.json settings, or modifying iOS/Android configs requires a new build via `eas build`
+- **Runtime version must match**: The update's runtime version must match your installed build's version
 
 ## Troubleshooting
 
-If updates aren't working:
-1. Verify EXPO_TOKEN is set in GitHub Secrets
-2. Check GitHub Actions tab for errors
-3. Ensure your app build has the update configuration
-4. Verify runtime version matches between build and update
+### Updates not appearing?
+
+1. **Check the channel**: Your build must match the update channel
+   - Development builds → `development` channel
+   - Run `npx eas-cli update --channel development` to publish manually
+
+2. **Force close and reopen twice**: Updates download on first launch, apply on second
+
+3. **Check GitHub Actions**: Go to your repo → Actions tab → check for errors
+
+4. **Verify runtime version**: Both build and update must have runtime version `1.0.0`
+
+### Check update status
+```bash
+# See recent updates
+npx eas-cli update:list
+
+# View on dashboard
+open https://expo.dev/accounts/hvelez21/projects/SetSheet/updates
+```
+
+## Monitoring
+
+View all published updates at:
+https://expo.dev/accounts/hvelez21/projects/SetSheet/updates
