@@ -27,6 +27,7 @@ interface TopSheetScrollViewProps {
   children: React.ReactNode;
   onSnapChange?: (index: number) => void;
   onScroll?: (offsetY: number) => void;
+  onHeightChange?: (height: number) => void;
   scrollEnabled?: boolean;
   style?: ViewStyle;
   contentContainerStyle?: ViewStyle;
@@ -43,6 +44,7 @@ export const TopSheetScrollView = forwardRef<TopSheetScrollViewRef, TopSheetScro
       children,
       onSnapChange,
       onScroll,
+      onHeightChange,
       scrollEnabled = true,
       style,
       contentContainerStyle,
@@ -72,9 +74,12 @@ export const TopSheetScrollView = forwardRef<TopSheetScrollViewRef, TopSheetScro
     React.useEffect(() => {
       const id = sheetHeight.addListener(({ value }) => {
         currentHeight.current = value;
+        if (onHeightChange) {
+          onHeightChange(value);
+        }
       });
       return () => sheetHeight.removeListener(id);
-    }, [sheetHeight]);
+    }, [sheetHeight, onHeightChange]);
 
     // Find closest snap point with velocity consideration
     const findClosestSnapPoint = useCallback(

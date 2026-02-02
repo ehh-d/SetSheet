@@ -97,6 +97,9 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
     return blocks;
   }, [dates]);
 
+  // The final month chronologically (most recent)
+  const finalMonth = monthBlocks.length > 0 ? monthBlocks[monthBlocks.length - 1].month : '';
+
   // Adjust scroll position when new dates are prepended (lazy loading)
   useEffect(() => {
     if (prependedCount > 0) {
@@ -107,8 +110,8 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
     }
   }, [prependedCount, clearPrependedCount]);
 
-  // Calculate scroll position for focus date
-  const getScrollPositionForFocusDate = useCallback(() => {
+  // Calculate scroll position for focus date at a given panel height
+  const getScrollPositionForHeight = useCallback((panelHeight: number) => {
     const currentFocusDate = focusDateRef.current;
     const currentDates = datesRef.current;
     if (!currentFocusDate || currentDates.length === 0) return 0;
@@ -119,12 +122,17 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
     if (index < 0) return 0;
 
     // Position so focus date is at the bottom of visible area
-    const visibleHeight = snapPoints[snapIndexRef.current] - SAFE_AREA_TOP - HANDLE_HEIGHT;
+    const visibleHeight = panelHeight - SAFE_AREA_TOP - HANDLE_HEIGHT;
     const rowsVisible = Math.floor(visibleHeight / ROW_HEIGHT);
     const targetRow = Math.max(0, index - rowsVisible + 1);
 
     return targetRow * ROW_HEIGHT;
-  }, [snapPoints, SAFE_AREA_TOP]);
+  }, [SAFE_AREA_TOP]);
+
+  // Calculate scroll position for focus date at current snap point
+  const getScrollPositionForFocusDate = useCallback(() => {
+    return getScrollPositionForHeight(snapPoints[snapIndexRef.current]);
+  }, [snapPoints, getScrollPositionForHeight]);
 
   // Scroll to focus date
   const scrollToFocusDate = useCallback(
@@ -144,16 +152,20 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
     }
   }, [dates.length, isLoading, focusDate, scrollToFocusDate]);
 
-  // Scroll to focus date when panel collapses
+  // Scroll to focus date when panel collapses or expands
   useEffect(() => {
-    if (currentSnapIndex === 0 && dates.length > 0) {
-      // Delay to allow animation to settle
+    if (dates.length > 0 && focusDate) {
+      // Delay to allow panel animation to settle, then animate scroll
       const timer = setTimeout(() => {
-        scrollToFocusDate(false);
+        scrollToFocusDate(true);
+        // Update activeMonth based on focus date since it's now at the bottom
+        const focusMonth = format(focusDate, 'MMM');
+        activeMonthRef.current = focusMonth;
+        setActiveMonth(focusMonth);
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [currentSnapIndex, dates.length, scrollToFocusDate]);
+  }, [currentSnapIndex, dates.length, focusDate, scrollToFocusDate]);
 
   // Handle snap changes
   const handleSnapChange = useCallback(
@@ -172,6 +184,11 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
       // Check if we need to lazy load more dates
       const topRowIndex = Math.floor(offsetY / ROW_HEIGHT);
       checkLazyLoadTrigger(topRowIndex);
+
+      // Skip activeMonth updates when collapsed - collapsed state uses focus date's month
+      if (snapIndexRef.current === 0) {
+        return;
+      }
 
       // Determine active month from bottom-most visible row
       const visibleHeight = snapPoints[snapIndexRef.current] - SAFE_AREA_TOP - HANDLE_HEIGHT;
@@ -194,10 +211,25 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
   // Initialize active month when dates/blocks change
   useEffect(() => {
     if (monthBlocks.length > 0) {
-      // Trigger a scroll calculation with current offset
-      handleScroll(scrollOffsetRef.current);
+      // When collapsed, use focus date's month; otherwise calculate from scroll position
+      if (snapIndexRef.current === 0 && focusDateRef.current) {
+        const focusMonth = format(focusDateRef.current, 'MMM');
+        activeMonthRef.current = focusMonth;
+        setActiveMonth(focusMonth);
+      } else {
+        handleScroll(scrollOffsetRef.current);
+      }
     }
   }, [monthBlocks.length, handleScroll]);
+
+  // Set active month to focus date's month when panel is collapsed
+  useEffect(() => {
+    if (currentSnapIndex === 0 && focusDate) {
+      const focusMonth = format(focusDate, 'MMM');
+      activeMonthRef.current = focusMonth;
+      setActiveMonth(focusMonth);
+    }
+  }, [currentSnapIndex, focusDate]);
 
   // Handle date/workout press
   const handleDatePress = useCallback(
@@ -248,28 +280,39 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
         contentContainerStyle={styles.contentContainer}
         overlay={
           <View style={styles.fixedLabelContainer}>
+            {/* Only show terminator for the final month (most recent chronologically) */}
+            {activeMonth === finalMonth && <View style={styles.timelineTerminator} />}
             <View style={styles.monthDot} />
             <Text style={styles.monthLabel}>{activeMonth}</Text>
           </View>
         }
       >
-        {monthBlocks.map((block, blockIdx) => (
-          <React.Fragment key={`block-${block.month}-${blockIdx}`}>
-            {dates.slice(block.startIndex, block.endIndex + 1).map((entry, idx) => {
-              const isFirst = idx === 0;
-              const isLast = idx === block.endIndex - block.startIndex;
-              return (
-                <CalendarDateRow
-                  key={`date-${block.startIndex + idx}`}
-                  entry={entry}
-                  onPress={() => handleDatePress(entry.date, entry.workout)}
-                  topLabel={isFirst ? block.month : undefined}
-                  bottomLabel={isLast ? block.month : undefined}
-                />
-              );
-            })}
-          </React.Fragment>
-        ))}
+        <View style={styles.timelineContainer}>
+          {/* Single continuous timeline line */}
+          <View style={styles.timelineLine} />
+
+          {/* Date rows */}
+          {monthBlocks.map((block, blockIdx) => (
+            <React.Fragment key={`block-${block.month}-${blockIdx}`}>
+              {dates.slice(block.startIndex, block.endIndex + 1).map((entry, idx) => {
+                const isFirst = idx === 0;
+                const isLast = idx === block.endIndex - block.startIndex;
+                return (
+                  <CalendarDateRow
+                    key={`date-${block.startIndex + idx}`}
+                    entry={entry}
+                    onPress={() => handleDatePress(entry.date, entry.workout)}
+                    isSelected={focusDate ? isSameDay(entry.date, focusDate) : false}
+                    topLabel={isFirst ? block.month : undefined}
+                    bottomLabel={isLast ? block.month : undefined}
+                    activeMonth={activeMonth}
+                    hideAllInlineLabels={currentSnapIndex === 0}
+                  />
+                );
+              })}
+            </React.Fragment>
+          ))}
+        </View>
       </TopSheetScrollView>
     </View>
   );
@@ -289,13 +332,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 44, // Space for handle (36) + small padding
   },
+  timelineContainer: {
+    position: 'relative',
+  },
+  timelineLine: {
+    position: 'absolute',
+    left: 7, // Align with dot center: 4 (monthLabelContainer) + 4 (dot center) - 1 (line center)
+    top: 0,
+    bottom: 0,
+    width: 2,
+    backgroundColor: '#333333',
+  },
   fixedLabelContainer: {
     position: 'absolute',
-    left: 16,
-    bottom: HANDLE_HEIGHT + 14,
+    left: 20, // Align with inline labels: 16 (padding) + 4 (container offset)
+    bottom: HANDLE_HEIGHT + 22, // Align vertically with bottom card center
     flexDirection: 'row',
     alignItems: 'center',
     zIndex: 200,
+  },
+  timelineTerminator: {
+    position: 'absolute',
+    left: 3, // Align with timeline line (23 absolute - 20 container = 3)
+    top: 8, // Start just below the dot center
+    width: 2,
+    height: HANDLE_HEIGHT + 20, // Cover line down to bottom of panel
+    backgroundColor: '#272727', // Match panel background
   },
   monthDot: {
     width: 8,

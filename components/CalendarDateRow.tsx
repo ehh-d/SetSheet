@@ -5,42 +5,56 @@ import { CalendarDateEntry } from '../types';
 interface CalendarDateRowProps {
   entry: CalendarDateEntry;
   onPress: () => void;
+  isSelected?: boolean; // Whether this is the focus date
   topLabel?: string;    // Show month label at top of this row (first day of month)
   bottomLabel?: string; // Show month label at bottom of this row (last day of month)
+  activeMonth?: string; // Current fixed overlay month - hide inline labels that match this
+  hideAllInlineLabels?: boolean; // When true, hide all inline labels (used in collapsed state)
 }
 
-// Helper to get ordinal suffix (1st, 2nd, 3rd, etc.)
-const getOrdinal = (n: number): string => {
+// Helper to get ordinal suffix (st, nd, rd, th)
+const getOrdinalSuffix = (n: number): string => {
   const s = ['th', 'st', 'nd', 'rd'];
   const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  return s[(v - 20) % 10] || s[v] || s[0];
 };
 
-export function CalendarDateRow({ entry, onPress, topLabel, bottomLabel }: CalendarDateRowProps) {
-  const { date, workout, isToday } = entry;
+export function CalendarDateRow({ entry, onPress, isSelected, topLabel, bottomLabel, activeMonth, hideAllInlineLabels }: CalendarDateRowProps) {
+  const { date, workout } = entry;
   const hasWorkout = !!workout;
+
+  // Determine the inline label to show (if any)
+  const inlineLabel = topLabel || bottomLabel;
+  // Hide inline label if: collapsed (hideAllInlineLabels), or it matches the fixed overlay's active month
+  const showInlineLabel = !hideAllInlineLabels && inlineLabel && inlineLabel !== activeMonth;
 
   return (
     <View style={styles.rowContainer}>
       {/* Timeline column with optional month labels */}
       <View style={styles.timelineColumn}>
-        <View style={styles.timelineLine} />
-        {(topLabel || bottomLabel) && (
+        {showInlineLabel && (
           <View style={styles.monthLabelContainer}>
             <View style={styles.monthDot} />
-            <Text style={styles.monthLabel}>{topLabel || bottomLabel}</Text>
+            <Text style={styles.monthLabel}>{inlineLabel}</Text>
           </View>
         )}
       </View>
 
       {/* Date Card */}
       <TouchableOpacity
-        style={[styles.dateCard, isToday && styles.dateCardToday]}
+        style={[
+          styles.dateCard,
+          hasWorkout && styles.dateCardWithWorkout,
+          isSelected && styles.dateCardSelected,
+        ]}
         onPress={onPress}
         activeOpacity={0.7}
       >
         <Text style={[styles.dateText, !hasWorkout && styles.textMuted]}>
-          {getOrdinal(date.getDate())}
+          {date.getDate()}
+          <Text style={[styles.ordinalSuffix, !hasWorkout && styles.textMuted]}>
+            {getOrdinalSuffix(date.getDate())}
+          </Text>
         </Text>
         <Text style={styles.separator}>/</Text>
         <Text style={[styles.workoutText, !hasWorkout && styles.textMuted]}>
@@ -69,56 +83,61 @@ const styles = StyleSheet.create({
     height: 50,
     overflow: 'visible',
   },
-  timelineLine: {
-    width: 1,
-    height: 56, // 50 (row) + 6 (margin) to create continuous line
-    position: 'absolute',
-    left: 11,
-    top: 0,
-    backgroundColor: '#333333',
-  },
-  // Date card
+  // Date card - default state (no workout, not selected)
   dateCard: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2A2A2A',
-    borderRadius: 10,
-    paddingVertical: 14,
+    backgroundColor: 'transparent',
+    borderRadius: 8,
+    paddingVertical: 16,
     paddingHorizontal: 16,
     marginRight: 12,
   },
-  dateCardToday: {
-    backgroundColor: '#3A3A3A',
+  // Selected date (focus date) - solid background
+  dateCardSelected: {
+    backgroundColor: '#1B1B1B',
+  },
+  // Has workout but not selected - border only
+  dateCardWithWorkout: {
+    borderWidth: 1,
+    borderColor: '#505050',
   },
   dateText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#D5D5D5',
+  },
+  ordinalSuffix: {
+    fontSize: 8,
+    fontWeight: '400',
+    color: '#D5D5D5',
   },
   textMuted: {
     color: '#666666',
   },
   separator: {
-    fontSize: 15,
-    color: '#555555',
-    marginHorizontal: 10,
+    fontSize: 12,
+    fontWeight: '300',
+    color: '#D5D5D5',
+    marginHorizontal: 8,
   },
   workoutText: {
-    fontSize: 15,
-    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#D5D5D5',
     flex: 1,
   },
   completedDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#FFFFFF',
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#D5D5D5',
   },
   // Month label styles - labels are vertically centered with the row
   monthLabelContainer: {
     position: 'absolute',
-    left: 0,
+    left: 4, // Align dot center (at +4) with timeline line center (at 8)
     top: 0,
     bottom: 0,
     flexDirection: 'row',
