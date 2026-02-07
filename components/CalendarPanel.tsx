@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useEffect, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,7 +19,25 @@ interface CalendarPanelProps {
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const ROW_HEIGHT = 56;
-const HANDLE_HEIGHT = 36;
+const HANDLE_HEIGHT = 32;
+const DRAWER_TOP_PADDING = 8;
+
+// Helper to get ordinal suffix (st, nd, rd, th)
+const getOrdinalSuffix = (n: number): string => {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0];
+};
+
+/** Extra spacing below status bar — island phones already have generous insets. */
+function safeAreaTop(insetsTop: number): number {
+  return insetsTop > 50 ? insetsTop - 8 : insetsTop + 4;
+}
+
+/** Returns the full collapsed panel height for a given safe-area top inset. */
+export function getCollapsedHeight(insetsTop: number): number {
+  return safeAreaTop(insetsTop) + DRAWER_TOP_PADDING + ROW_HEIGHT + HANDLE_HEIGHT;
+}
 
 export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
   const navigation = useNavigation<NavigationProp>();
@@ -27,13 +45,13 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
   const insets = useSafeAreaInsets();
 
   // Calculate snap points with safe area
-  const SAFE_AREA_TOP = insets.top + 4;
+  const SAFE_AREA_TOP = safeAreaTop(insets.top);
 
   // Two snap points:
   // 0: Collapsed (1 row visible)
   // 1: Open (larger view)
-  const COLLAPSED_HEIGHT = SAFE_AREA_TOP + ROW_HEIGHT + HANDLE_HEIGHT;
-  const OPEN_HEIGHT = SAFE_AREA_TOP + (7 * ROW_HEIGHT) + HANDLE_HEIGHT;
+  const COLLAPSED_HEIGHT = SAFE_AREA_TOP + DRAWER_TOP_PADDING + ROW_HEIGHT + HANDLE_HEIGHT;
+  const OPEN_HEIGHT = SAFE_AREA_TOP + DRAWER_TOP_PADDING + (7 * ROW_HEIGHT) + HANDLE_HEIGHT;
 
   const snapPoints = useMemo(
     () => [COLLAPSED_HEIGHT, OPEN_HEIGHT],
@@ -122,7 +140,7 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
     if (index < 0) return 0;
 
     // Position so focus date is at the bottom of visible area
-    const visibleHeight = panelHeight - SAFE_AREA_TOP - HANDLE_HEIGHT;
+    const visibleHeight = panelHeight - SAFE_AREA_TOP - DRAWER_TOP_PADDING - HANDLE_HEIGHT;
     const rowsVisible = Math.floor(visibleHeight / ROW_HEIGHT);
     const targetRow = Math.max(0, index - rowsVisible + 1);
 
@@ -191,7 +209,7 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
       }
 
       // Determine active month from bottom-most visible row
-      const visibleHeight = snapPoints[snapIndexRef.current] - SAFE_AREA_TOP - HANDLE_HEIGHT;
+      const visibleHeight = snapPoints[snapIndexRef.current] - SAFE_AREA_TOP - DRAWER_TOP_PADDING - HANDLE_HEIGHT;
       const bottomRowIndex = Math.floor((offsetY + visibleHeight) / ROW_HEIGHT);
 
       // Find which month this row belongs to
@@ -275,16 +293,37 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
         onSnapChange={handleSnapChange}
         onScroll={handleScroll}
         scrollEnabled={currentSnapIndex > 0}
-        topInset={SAFE_AREA_TOP}
+        topInset={SAFE_AREA_TOP + DRAWER_TOP_PADDING}
         handleHeight={HANDLE_HEIGHT}
         contentContainerStyle={styles.contentContainer}
         overlay={
-          <View style={styles.fixedLabelContainer}>
-            {/* Only show terminator for the final month (most recent chronologically) */}
-            {activeMonth === finalMonth && <View style={styles.timelineTerminator} />}
-            <View style={styles.monthDot} />
-            <Text style={styles.monthLabel}>{activeMonth}</Text>
-          </View>
+          <>
+            <View style={styles.fixedLabelContainer}>
+              {/* Only show terminator for the final month (most recent chronologically) */}
+              {activeMonth === finalMonth && <View style={styles.timelineTerminator} />}
+              <View style={styles.monthDot} />
+              <Text style={styles.monthLabel}>{activeMonth}</Text>
+            </View>
+
+            {/* Current day button - show when NOT viewing today */}
+            {focusDate && !isSameDay(focusDate, new Date()) && (
+              <TouchableOpacity
+                style={styles.currentDayButton}
+                onPress={() => {
+                  const today = new Date();
+                  if (onDateSelect) onDateSelect(today);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.currentDayContent}>
+                  <Text style={styles.currentDayNumber}>{new Date().getDate()}</Text>
+                  <Text style={styles.currentDaySuffix}>
+                    {getOrdinalSuffix(new Date().getDate())}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          </>
         }
       >
         <View style={styles.timelineContainer}>
@@ -297,6 +336,7 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
               {dates.slice(block.startIndex, block.endIndex + 1).map((entry, idx) => {
                 const isFirst = idx === 0;
                 const isLast = idx === block.endIndex - block.startIndex;
+                const showCurrentDayButton = focusDate && !isSameDay(focusDate, new Date());
                 return (
                   <CalendarDateRow
                     key={`date-${block.startIndex + idx}`}
@@ -307,6 +347,7 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
                     bottomLabel={isLast ? block.month : undefined}
                     activeMonth={activeMonth}
                     hideAllInlineLabels={currentSnapIndex === 0}
+                    reserveRightSpace={showCurrentDayButton}
                   />
                 );
               })}
@@ -329,8 +370,9 @@ const styles = StyleSheet.create({
   contentContainer: {
     flexGrow: 1,
     justifyContent: 'flex-end',
-    paddingHorizontal: 16,
-    paddingBottom: 44, // Space for handle (36) + small padding
+    paddingLeft: 16,
+    paddingRight: 16,
+    paddingBottom: 40, // Space for handle (32) + small padding
   },
   timelineContainer: {
     position: 'relative',
@@ -388,5 +430,35 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 12,
+  },
+  currentDayButton: {
+    position: 'absolute',
+    right: 20, // Match left padding symmetry
+    bottom: HANDLE_HEIGHT + 14,
+    width: 32,
+    height: 32,
+    borderWidth: 1,
+    borderColor: '#505050',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    zIndex: 200,
+  },
+  currentDayContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  currentDayNumber: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#D5D5D5',
+    lineHeight: 16,
+  },
+  currentDaySuffix: {
+    fontSize: 7.74,
+    fontWeight: '400',
+    color: '#D5D5D5',
+    lineHeight: 16,
   },
 });

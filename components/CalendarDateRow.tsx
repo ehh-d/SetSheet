@@ -10,6 +10,7 @@ interface CalendarDateRowProps {
   bottomLabel?: string; // Show month label at bottom of this row (last day of month)
   activeMonth?: string; // Current fixed overlay month - hide inline labels that match this
   hideAllInlineLabels?: boolean; // When true, hide all inline labels (used in collapsed state)
+  reserveRightSpace?: boolean; // When true, add extra right margin for current day button
 }
 
 // Helper to get ordinal suffix (st, nd, rd, th)
@@ -19,7 +20,7 @@ const getOrdinalSuffix = (n: number): string => {
   return s[(v - 20) % 10] || s[v] || s[0];
 };
 
-export function CalendarDateRow({ entry, onPress, isSelected, topLabel, bottomLabel, activeMonth, hideAllInlineLabels }: CalendarDateRowProps) {
+export function CalendarDateRow({ entry, onPress, isSelected, topLabel, bottomLabel, activeMonth, hideAllInlineLabels, reserveRightSpace }: CalendarDateRowProps) {
   const { date, workout } = entry;
   const hasWorkout = !!workout;
 
@@ -46,16 +47,19 @@ export function CalendarDateRow({ entry, onPress, isSelected, topLabel, bottomLa
           styles.dateCard,
           hasWorkout && styles.dateCardWithWorkout,
           isSelected && styles.dateCardSelected,
+          reserveRightSpace && styles.dateCardWithRightSpace,
         ]}
         onPress={onPress}
         activeOpacity={0.7}
       >
-        <Text style={[styles.dateText, !hasWorkout && styles.textMuted]}>
-          {date.getDate()}
+        <View style={styles.dateGroup}>
+          <Text style={[styles.dateText, !hasWorkout && styles.textMuted]}>
+            {date.getDate()}
+          </Text>
           <Text style={[styles.ordinalSuffix, !hasWorkout && styles.textMuted]}>
             {getOrdinalSuffix(date.getDate())}
           </Text>
-        </Text>
+        </View>
         <Text style={styles.separator}>/</Text>
         <Text style={[styles.workoutText, !hasWorkout && styles.textMuted]}>
           {workout?.name || 'No Workout'}
@@ -90,6 +94,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'transparent',
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#333333',
     paddingVertical: 16,
     paddingHorizontal: 16,
     marginRight: 12,
@@ -97,21 +103,30 @@ const styles = StyleSheet.create({
   // Selected date (focus date) - solid background
   dateCardSelected: {
     backgroundColor: '#1B1B1B',
+    borderColor: '#1B1B1B',
   },
-  // Has workout but not selected - border only
+  // Has workout but not selected - brighter border
   dateCardWithWorkout: {
-    borderWidth: 1,
     borderColor: '#505050',
+  },
+  // Extra right margin when current day button is showing
+  dateCardWithRightSpace: {
+    marginRight: 52, // 32 (button width) + 8 (gap) + 12 (original margin)
   },
   dateText: {
     fontSize: 12,
     fontWeight: '700',
     color: '#D5D5D5',
   },
+  dateGroup: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
   ordinalSuffix: {
-    fontSize: 8,
+    fontSize: 7,
     fontWeight: '400',
     color: '#D5D5D5',
+    marginTop: 1,
   },
   textMuted: {
     color: '#666666',

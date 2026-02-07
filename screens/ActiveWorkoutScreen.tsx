@@ -12,7 +12,7 @@ import {
   Animated,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { WorkoutExerciseWithDetails, Set as SetType } from '../types';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -355,7 +355,7 @@ export default function ActiveWorkoutScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
-          {format(new Date(workout.workout_date), 'MMM d')} • {workout.name}
+          {format(parseISO(workout.workout_date), 'MMM d')} • {workout.name}
         </Text>
         <Text style={styles.exerciseCount}>
           {workout.workout_exercises.length} exercises

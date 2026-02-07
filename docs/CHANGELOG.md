@@ -2,128 +2,178 @@
 
 All notable changes to SetSheet are documented in this file.
 
-## [2026-01-31] - Simplified Sticky Month Labels
+---
+
+## [2026-02-07] - Exercise Accordion Cards, Duplicate Sheet, Current Day Action
+
+### Added
+- **Collapsible Exercise Cards:** `ExerciseSummaryCard` now functions as accordion-style cards (collapsed by default)
+  - Collapsed state: Exercise header + Total Volume + 1 Rep Max (estimated using Brzycki formula)
+  - Expanded state: Same info + detailed set table (Set / Reps / Lbs / PR columns with star icons)
+  - 1RM calculation: `calculate1RM(weight, reps)` using Brzycki formula, displays highest estimate across completed sets
+  - Total Volume: Sum of (reps × weight) for all completed sets
+  - Toggle via header tap
+- **Duplicate Sheet Button:** Added to HomeScreen for past completed workouts
+  - Creates new workout for today with same stages/exercises (no sets)
+  - Navigates to ActiveWorkout screen
+- **Current Day Action Button:** Added to CalendarPanel
+  - 32×32 bordered button showing today's date with ordinal suffix (e.g., "7th")
+  - Only visible when viewing dates other than today
+  - Positioned on right side of calendar panel, moves with drawer
+  - Taps to jump focus back to current day
+- **Three-column layout:** Calendar drawer now uses consistent left/right padding
+  - Left: Month labels (scrolling + fixed)
+  - Center: Date cards (flex to fill available space)
+  - Right: Current day button (when viewing past/future dates)
 
 ### Changed
-- **Month Label Architecture:** Complete rewrite of sticky month label system using a simpler "fake sticky" approach:
-  - **Removed:** Complex scroll-based position calculations, `visibleLabels` state, `monthBlocksRef`
-  - **Added:** Simple `activeMonth` state with ref for fast updates
-  - **New Approach:**
-    - Inline labels at TOP and BOTTOM of each month block (scroll naturally with content)
-    - One fixed overlay label always pinned at bottom showing current active month
-    - When inline label overlaps fixed label, they show same content (invisible overlap)
-
-### Technical Details
-- `CalendarPanel.tsx`:
-  - `handleScroll` now only handles lazy loading + determining active month from bottom-most visible row
-  - Renders month blocks with `topLabel` (first day) and `bottomLabel` (last day) passed to `CalendarDateRow`
-  - Fixed overlay shows `activeMonth` state
-  - Uses `activeMonthRef` to avoid unnecessary re-renders on scroll
-
-- `CalendarDateRow.tsx`:
-  - Added `topLabel` and `bottomLabel` props
-  - Labels render vertically centered in timeline column (using `top: 0, bottom: 0, alignItems: 'center'`)
-  - Removed separate inline label rows that were causing gaps
+- **ExerciseSummaryCard redesign:** Removed info icon, converted to accordion with 1RM and volume metrics
+- **CalendarDateRow:** Cards now dynamically adjust right margin when current day button is visible
+  - `marginRight: 52px` when button showing (32px button + 8px gap + 12px base margin)
+  - `marginRight: 12px` when button hidden
+- **Supabase queries:** Added `is_pr` field to sets queries in HomeScreen and WorkoutSummaryScreen
 
 ### Fixed
-- Month labels now appear beside date cards instead of creating separate rows with gaps
-- Reduced delay in month transition by using ref comparison before state updates
+- **Date timezone bug:** Fixed date display showing wrong day due to UTC offset
+  - Replaced `new Date(dateString)` with `parseISO(dateString)` across all screens (HomeScreen, WorkoutSummaryScreen, ActiveWorkoutScreen, CategorySelectionScreen)
+  - Fixed `StartWorkoutScreen` date fallback using `format(new Date(), 'yyyy-MM-dd')` instead of `toISOString().split('T')[0]`
+- **Calendar card borders:** Restored visible borders on all date cards (border: `#333333`, workout cards: `#505050`)
+- **Date ordinal suffixes:** Properly superscripted and top-aligned throughout app
+  - Calendar cards: day number + smaller superscript suffix
+  - Workout summary header: "January 7" + superscript "th"
 
-### Known Issues / Next Steps
-- [ ] Test scrolling behavior with more months of data
-- [ ] May want to show only bottom labels (last day of each month) if top+bottom looks redundant
-- [ ] Verify fixed overlay position aligns correctly with inline labels
+### Technical Notes
+- Brzycki 1RM formula: `weight × (36 / (37 - reps))`
+- Formula breaks down at 37+ reps, returns weight as-is
+- Date strings stored as `yyyy-MM-dd` format in database
+- `parseISO()` correctly interprets as local midnight, avoiding timezone shift
+
+---
+
+## [2026-02-03] - Workout Summary Redesign (In Progress)
+
+### Added
+- **New Reusable Components:**
+  - `components/timeline/TimelineSidebar.tsx` — Vertical timeline line with optional dot
+  - `components/timeline/StageHeader.tsx` — Stage title with timeline dot
+  - `components/stats/StatRow.tsx` — Label/value row for stats display
+  - `components/exercise/ExerciseSummaryCard.tsx` — Exercise card with image placeholder, title, muscle group, info icon, and set summary
+
+### Changed
+- **HomeScreen Completed Workout View:** Now uses new components for inline summary display
+  - Row-based stats in rounded card (replaces grid layout)
+  - Exercise cards grouped by stage with timeline sidebar
+  - Stage headers with timeline dots
+- **WorkoutSummaryScreen:** Redesigned to match Figma specs
+  - Header: Date title + edit icon, workout name subtitle
+  - Stats section with StatRow components
+  - Notes section with edit icon
+  - Exercise list grouped by workout stages
+- **Supabase Query:** Updated to fetch `workout_stages` for stage grouping
+- **Styling Updates:**
+  - Card background: `#1B1B1B`
+  - Timeline color: `#757575`
+  - Card border radius: `32px`
+  - Exercise image placeholder: `48x48` white background
+
+### Known Issues
+- Timeline line may need further adjustment for connecting between cards
+- Edit icons are placeholders (not functional yet)
+
+---
+
+## [2026-02-02] - Date Card Styling Update
+
+### Changed
+- **Date Card Styles:** Updated to match Figma designs
+  - Selected (focus date): solid `#1B1B1B` background
+  - Workout completed (non-selected): transparent with `1px solid #505050` border
+  - Selected + has workout: both background and border applied
+- **Date Card Typography:**
+  - Font size: 12px (was 15px)
+  - Text color: `#D5D5D5` (was white)
+  - Border radius: 8px (was 10px)
+  - Completion dot: 4px (was 6px)
+- **Scroll Animation:** Smooth animated scroll to focus date after panel open/close
+
+### Added
+- `isSelected` prop to CalendarDateRow for focus date detection
+- `onHeightChange` callback to TopSheetScrollView (for future use)
+
+---
+
+## [2026-01-31] - Calendar Panel Refinements
+
+### Added
+- **Sticky Month Labels:** Simplified "fake sticky" implementation:
+  - Inline labels at top and bottom of each month block
+  - Fixed overlay label pinned at bottom showing active month
+  - Labels appear beside date cards (no gaps)
+
+### Changed
+- **Month Label Architecture:** Replaced complex scroll-based positioning with simpler approach:
+  - Removed `visibleLabels` state and position calculations
+  - Added `activeMonth` state with ref for fast updates
+  - `handleScroll` now only handles lazy loading + determining active month
+- **Calendar View:** Removed grid view, list view only
+
+### Fixed
+- **Scroll to Focus Date on Panel Close:** Panel now scrolls to show selected date when collapsing
+  - Uses `useEffect` watching `currentSnapIndex` instead of setTimeout
+  - 300ms delay allows animation to settle before scrolling
 
 ---
 
 ## [2026-01-30] - Calendar Panel & Sheet View Refactor
 
 ### Added
-- **FEATURE_SPEC.md:** New documentation defining terminology:
-  - **Sheet** = workout log for a specific date
-  - **Sheet View** = primary landing screen (formerly HomeScreen)
-  - **Focus Date** = currently viewed date (defaults to today)
-  - **Calendar Panel** = sliding drawer for date navigation
-
+- **TopSheetScrollView Component:** Custom top sheet with:
+  - Smooth drag gestures via PanResponder
+  - Spring animations via React Native Animated
+  - Configurable snap points (collapsed/open)
+  - Rubber banding at edges
+  - Velocity-based snap detection
 - **Calendar Panel Styling:**
-  - Card-style drawer with shadow (`box-shadow: 0 12px 12px rgba(0,0,0,0.25)`)
+  - Card-style drawer with shadow
   - Background: `#272727`
   - Border radius: `24px` (bottom corners)
-  - Padding: `24px`
   - 8px margin from viewport edges
 
-- **Real-time Scroll Sync:**
-  - Focus date stays pinned during panel drag (open/close)
-  - Uses `panelHeight.addListener()` to sync scroll position with panel height
-  - No delayed/janky scroll animation after release
-
 ### Changed
-- **HomeScreen → Sheet View:**
-  - Removed Sign Out button (to be relocated later)
-  - Now loads sheet for ANY selected date (not just today)
+- **HomeScreen → Sheets:** Primary landing screen renamed
+  - Loads sheet for any selected date (not just today)
   - Shows date even when no sheet exists
-  - Renamed variables: `selectedDate` → `focusDate`, `todayWorkout` → `sheet`
-
+  - Renamed: `selectedDate` → `focusDate`, `todayWorkout` → `sheet`
 - **Calendar Panel Gestures:**
-  - Full bottom of card is now draggable (not just handle bar)
-  - Handle touch area: 56px height, full width
-  - Removed `isAtBottom` restriction - can always drag up to close
-
-- **Calendar Shows All Dates:**
-  - Every date in range displayed (not just dates with workouts)
-  - Dates without workouts show "No Workout"
-
-### In Progress / Known Issues
-- [ ] Scroll sync may need fine-tuning for smoother feel
-- [ ] Extended scroll state not yet implemented (pulling past open)
-- [ ] Verify lazy loading triggers correctly
+  - Full handle area draggable (56px height)
+  - Removed `isAtBottom` restriction
+- **Calendar Shows All Dates:** Every date displayed, not just dates with workouts
 
 ### Technical Notes
-- Using React Native `Animated` + `PanResponder` (not reanimated - Expo Go version mismatch)
-- Scroll position calculated: `scrollY = (focusDateIndex + 1) * ROW_HEIGHT - (panelHeight - HANDLE_HEIGHT)`
-- Panel height animated via spring, scroll syncs on every frame
-
-### Design Reference
-See `/App Comps/` folder for mockups
+- Using React Native Animated + PanResponder (not Reanimated — Expo Go version mismatch)
+- Removed `react-native-reanimated` dependency entirely
 
 ---
 
 ## [2026-01-25] - Critical Bug Fixes & Database Cleanup
 
 ### Fixed
-- **React Hooks Violation:** Removed `useRef` from inside `.map()` function in ActiveWorkoutScreen.tsx that caused "change in order of Hooks" error when adding sets
-- **Schema Cache Errors:** Fixed ALL column name mismatches between code and database:
-  - `order_index` → `sort_order` (workout_exercises, workout_stages)
+- **React Hooks Violation:** Removed `useRef` from inside `.map()` in ActiveWorkoutScreen
+- **Schema Cache Errors:** Fixed all column name mismatches:
+  - `order_index` → `sort_order`
   - `target_sets` → `proposed_sets`
   - `target_reps_min/max` → `proposed_reps_min/max`
-  - `completed` → `is_completed` (sets table)
-  - Removed `started_at` (column doesn't exist in database)
-- **WorkoutSummaryScreen Blank Screen:** Fixed column name errors preventing summary from rendering
-- **HomeScreen Not Showing Active Workouts:** Now displays both 'active' and 'completed' workouts with appropriate buttons
-- **Duplicate Exercise Selection:** Prevented adding the same exercise variation twice to a workout
-- **Visual Feedback:** Added white background + X icon for selected exercises in search
+  - `completed` → `is_completed`
+  - Removed `started_at` (doesn't exist)
+- **WorkoutSummaryScreen Blank:** Fixed column name errors
+- **HomeScreen Not Showing Active Workouts:** Now displays both active and completed
+- **Duplicate Exercise Selection:** Prevented adding same variation twice
+- **Visual Feedback:** White background + X icon for selected exercises
 
 ### Changed
-- **Workout Duplicate Prevention:** No longer auto-deletes existing workouts. Instead shows alert with options to:
-  - View completed workout
-  - Continue active workout
-  - Cancel and return
-- **Complete Workout Button:** Now disabled (grayed out) when no sets have been added. Shows alert if user attempts to complete empty workout
-- **Multi-Equipment Exercise UX:** Removed + button from parent exercise row when variations are shown
-
-### Added
-- **SUPABASE_ADMIN.md:** Comprehensive admin guide with:
-  - Quick reference for API keys and project details
-  - Essential admin task workflows
-  - Database schema documentation
-  - Optimization recommendations (indexes, functions)
-  - Security best practices
-  - Common issues and fixes
-- **Database Administration:** Claude now serves as dev and admin with efficient workflows documented
-
-### Removed
-- All workout history data (cleaned from database for testing)
-- Auto-deletion of "orphaned" workouts (user data preservation)
+- **Workout Duplicate Prevention:** Alert with options instead of auto-delete
+- **Complete Workout Button:** Disabled when no sets added
+- **Multi-Equipment Exercise UX:** Removed + button from parent row when variations shown
 
 ---
 
@@ -132,9 +182,8 @@ See `/App Comps/` folder for mockups
 ### Added
 - Upload Template screen with multi-line text input
 - Template parser supporting categories, stages, and exercise formats
-- Template preview with visual breakdown
-- Start workout directly from template
-- Auto-create categories if they don't exist
+- Exercises pre-selected in Exercise Search after template upload
+- Category auto-applied from template (defaults to "General Workout" if none)
 
 ---
 
@@ -142,7 +191,6 @@ See `/App Comps/` folder for mockups
 
 ### Added
 - Previous workout data in "Previous" column
-- Multiple calendar views (Week, Month, List)
 - Exercise filtering by muscle group
 - Swipe-to-delete for sets
 - Smooth animations and gestures
@@ -153,9 +201,20 @@ See `/App Comps/` folder for mockups
 
 ### Added
 - Authentication (login, auto-login, sign out)
-- Home screen with week calendar view
+- Home screen with calendar panel
 - Category selection with filters
 - Exercise search with equipment variations
 - Active workout logging with set tracking
 - Workout summary with stats and calculations
 - Complete Supabase backend integration
+
+---
+
+## Database Statistics
+
+| Table | Count | Notes |
+|-------|-------|-------|
+| exercises | 142 | All have descriptions |
+| exercise_variations | 376 | Avg 2.6 per exercise |
+| categories | 20 | 4 category groups |
+| profiles | 2 | Test accounts |

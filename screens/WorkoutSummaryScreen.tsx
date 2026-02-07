@@ -7,13 +7,17 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
-import { WorkoutExerciseWithDetails } from '../types';
+import { WorkoutExerciseWithDetails, WorkoutStage } from '../types';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
-import { calculateVolume, calculate1RM } from '../utils/calculations';
+import { calculateVolume } from '../utils/calculations';
+import { StatRow } from '../components/stats/StatRow';
+import { StageHeader } from '../components/timeline/StageHeader';
+import { ExerciseSummaryCard } from '../components/exercise/ExerciseSummaryCard';
 
 type WorkoutSummaryNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -26,7 +30,14 @@ interface WorkoutData {
   workout_date: string;
   name: string | null;
   notes: string | null;
+  workout_stages: WorkoutStage[];
   workout_exercises: WorkoutExerciseWithDetails[];
+}
+
+// Group exercises by stage
+interface StageGroup {
+  stage: WorkoutStage | null;
+  exercises: WorkoutExerciseWithDetails[];
 }
 
 export default function WorkoutSummaryScreen() {
@@ -50,10 +61,16 @@ export default function WorkoutSummaryScreen() {
         workout_date,
         name,
         notes,
+        workout_stages (
+          id,
+          name,
+          sort_order
+        ),
         workout_exercises (
           id,
           exercise_variation_id,
           sort_order,
+          stage_id,
           exercise_variations (
             id,
             equipment,
@@ -68,7 +85,8 @@ export default function WorkoutSummaryScreen() {
             set_number,
             reps,
             weight,
-            is_completed
+            is_completed,
+            is_pr
           )
         )
       `)
@@ -89,102 +107,128 @@ export default function WorkoutSummaryScreen() {
     );
   }
 
+  // Calculate stats
   const totalExercises = workout.workout_exercises.length;
   const totalSets = workout.workout_exercises.reduce(
     (sum, ex) => sum + ex.sets.filter(s => s.is_completed).length,
     0
   );
   const totalReps = workout.workout_exercises.reduce(
-    (sum, ex) => sum + ex.sets.reduce((s, set) => s + (set.reps || 0), 0),
+    (sum, ex) => sum + ex.sets.filter(s => s.is_completed).reduce((s, set) => s + (set.reps || 0), 0),
     0
   );
   const totalVolume = workout.workout_exercises.reduce((sum, ex) => {
+    const completedSets = ex.sets.filter(s => s.is_completed);
     const exerciseVolume = calculateVolume(
-      ex.sets.map(s => ({ reps: s.reps || 0, weight: s.weight || 0 }))
+      completedSets.map(s => ({ reps: s.reps || 0, weight: s.weight || 0 }))
     );
     return sum + exerciseVolume;
   }, 0);
+
+  // Group exercises by stage
+  const stageGroups: StageGroup[] = [];
+  const sortedStages = [...(workout.workout_stages || [])].sort(
+    (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
+  );
+
+  // Create groups for each stage
+  sortedStages.forEach(stage => {
+    const stageExercises = workout.workout_exercises
+      .filter(ex => ex.stage_id === stage.id)
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+    if (stageExercises.length > 0) {
+      stageGroups.push({ stage, exercises: stageExercises });
+    }
+  });
+
+  // Add exercises without a stage
+  const unstaged = workout.workout_exercises
+    .filter(ex => !ex.stage_id)
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+  if (unstaged.length > 0) {
+    stageGroups.push({ stage: null, exercises: unstaged });
+  }
+
+  // Format date for header
+  const formattedDate = format(parseISO(workout.workout_date), 'MMMM do');
 
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.navigate('Home')}>
-          <Text style={styles.backText}>‹ Home</Text>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.navigate('MainTabs')}
+        >
+          <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Summary</Text>
-        <View style={{ width: 50 }} />
+        <View style={styles.headerCenter}>
+          <View style={styles.dateTitleRow}>
+            <Text style={styles.dateTitle}>{formattedDate}</Text>
+            <TouchableOpacity style={styles.editButton}>
+              <Ionicons name="pencil" size={16} color="#757575" />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.workoutSubtitle}>{workout.name || 'Workout'}</Text>
+        </View>
+        <View style={styles.headerSpacer} />
       </View>
 
-      {/* Stats */}
-      <View style={styles.statsContainer}>
-        <Text style={styles.workoutTitle}>{workout.name}</Text>
-        <Text style={styles.workoutDate}>
-          {format(new Date(workout.workout_date), 'MMMM d, yyyy')}
-        </Text>
-
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{totalExercises}</Text>
-            <Text style={styles.statLabel}>Exercises</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{totalSets}</Text>
-            <Text style={styles.statLabel}>Total Sets</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{totalReps}</Text>
-            <Text style={styles.statLabel}>Total Reps</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{totalVolume.toLocaleString()}</Text>
-            <Text style={styles.statLabel}>Total Volume</Text>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Stats Section */}
+        <View style={styles.statsSection}>
+          <Text style={styles.sectionTitle}>Exercises</Text>
+          <View style={styles.statsCard}>
+            <StatRow label="Exercises" value={totalExercises} />
+            <StatRow label="Total Sets" value={totalSets} />
+            <StatRow label="Total Reps" value={totalReps} />
+            <StatRow label="Total Volume" value={totalVolume.toLocaleString()} unit="lbs" />
           </View>
         </View>
-      </View>
 
-      {/* Exercises */}
-      <ScrollView style={styles.content}>
-        {workout.workout_exercises
-          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-          .map((exercise, index) => {
-            const completedSets = exercise.sets.filter(s => s.is_completed);
-            const exerciseVolume = calculateVolume(
-              completedSets.map(s => ({ reps: s.reps || 0, weight: s.weight || 0 }))
-            );
-            const best1RM = Math.max(
-              ...completedSets.map(s =>
-                s.reps && s.weight ? calculate1RM(s.weight, s.reps) : 0
-              )
-            );
-
-            return (
-              <View key={exercise.id} style={styles.exerciseCard}>
-                <Text style={styles.exerciseName}>
-                  {exercise.exercise_variations.exercises.name}
-                </Text>
-                <Text style={styles.exerciseDetails}>
-                  {exercise.exercise_variations.equipment} • {completedSets.length} sets •{' '}
-                  {exerciseVolume} lbs
-                </Text>
-
-                {completedSets.map(set => (
-                  <View key={set.id} style={styles.setRow}>
-                    <Text style={styles.setText}>
-                      Set {set.set_number}: {set.reps} reps × {set.weight} lbs
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            );
-          })}
-
+        {/* Notes Section */}
         {workout.notes && (
-          <View style={styles.notesCard}>
-            <Text style={styles.notesLabel}>Notes</Text>
+          <View style={styles.notesSection}>
+            <View style={styles.notesTitleRow}>
+              <Text style={styles.notesLabel}>Workout Notes</Text>
+              <TouchableOpacity style={styles.editButton}>
+                <Ionicons name="pencil" size={16} color="#757575" />
+              </TouchableOpacity>
+            </View>
             <Text style={styles.notesText}>{workout.notes}</Text>
           </View>
         )}
+
+        {/* Exercise List by Stage */}
+        <View style={styles.exercisesSection}>
+          {stageGroups.map((group, groupIndex) => (
+            <View key={group.stage?.id || 'unstaged'}>
+              {/* Stage Header */}
+              {group.stage && (
+                <StageHeader
+                  title={group.stage.name || 'Stage'}
+                />
+              )}
+
+              {/* Exercise Cards */}
+              {group.exercises.map((exercise) => (
+                <ExerciseSummaryCard
+                  key={exercise.id}
+                  exercise={exercise}
+                />
+              ))}
+            </View>
+          ))}
+        </View>
+
+        {/* Bottom padding */}
+        <View style={styles.bottomPadding} />
       </ScrollView>
     </View>
   );
@@ -193,109 +237,93 @@ export default function WorkoutSummaryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#121212',
   },
   loader: {
     flex: 1,
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 16,
     paddingTop: 60,
+    paddingBottom: 16,
   },
-  backText: {
-    color: '#888888',
-    fontSize: 18,
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  headerTitle: {
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  dateTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dateTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
-  statsContainer: {
-    padding: 20,
-    alignItems: 'center',
+  editButton: {
+    marginLeft: 8,
+    padding: 4,
   },
-  workoutTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  workoutDate: {
+  workoutSubtitle: {
     fontSize: 14,
-    color: '#888888',
-    marginBottom: 20,
+    color: '#757575',
+    marginTop: 2,
   },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    width: '100%',
-  },
-  statCard: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: '#2A2A2A',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#888888',
+  headerSpacer: {
+    width: 40,
   },
   content: {
     flex: 1,
-    padding: 20,
-    paddingTop: 0,
   },
-  exerciseCard: {
-    backgroundColor: '#2A2A2A',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
+  contentContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
   },
-  exerciseName: {
+  statsSection: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  exerciseDetails: {
-    fontSize: 12,
-    color: '#888888',
     marginBottom: 12,
   },
-  setRow: {
-    paddingVertical: 4,
+  statsCard: {
+    backgroundColor: '#1B1B1B',
+    borderRadius: 32,
+    paddingHorizontal: 24,
+    paddingVertical: 8,
   },
-  setText: {
-    fontSize: 14,
-    color: '#FFFFFF',
+  notesSection: {
+    marginBottom: 24,
   },
-  notesCard: {
-    backgroundColor: '#2A2A2A',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
+  notesTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   notesLabel: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#888888',
-    marginBottom: 8,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#D5D5D5',
   },
   notesText: {
     fontSize: 14,
-    color: '#FFFFFF',
+    color: '#757575',
+    lineHeight: 20,
+  },
+  exercisesSection: {
+    marginTop: 8,
+  },
+  bottomPadding: {
+    height: 40,
   },
 });

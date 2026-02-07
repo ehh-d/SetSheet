@@ -22,6 +22,7 @@ export type WorkoutExerciseWithDetails = WorkoutExercise & {
   };
   sets: Set[];
   previousSets?: Set[];
+  workout_stages?: WorkoutStage | null;
 };
 
 export type WorkoutWithDetails = Workout & {
@@ -43,6 +44,7 @@ export interface CalendarDateEntry {
 export type RootStackParamList = {
   Login: undefined;
   MainTabs: undefined;
+  StartWorkout: { date: string };
   CategorySelection: { date: string };
   ExerciseSearch: { categoryId: string; categoryName: string; date: string };
   ActiveWorkout: { workoutId: string };
@@ -53,8 +55,7 @@ export type RootStackParamList = {
 
 export type MainTabParamList = {
   Home: undefined;
-  ExerciseLibrary: undefined;
   StartWorkout: undefined;
-  Templates: undefined;
+  ExerciseLibrary: undefined;
   Profile: undefined;
 };

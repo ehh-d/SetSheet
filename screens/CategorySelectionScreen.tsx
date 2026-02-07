@@ -7,7 +7,7 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { Category } from '../types';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -70,7 +70,7 @@ export default function CategorySelectionScreen() {
     });
   };
 
-  const formattedDate = format(new Date(date), 'MMM d');
+  const formattedDate = format(parseISO(date), 'MMM d');
 
   return (
     <View style={styles.container}>
