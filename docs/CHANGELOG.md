@@ -4,6 +4,45 @@ All notable changes to SetSheet are documented in this file.
 
 ---
 
+## [2026-02-08] - Calendar Panel Investigation (Reverted)
+
+### Attempted
+- **TopSheet Migration:** Attempted to migrate CalendarPanel from `TopSheetScrollView` (PanResponder + Animated API) to custom `TopSheet` component (Reanimated v3 + GestureHandler)
+  - Goal: Better performance with Reanimated worklets running on UI thread
+  - Installed `@gorhom/bottom-sheet` for future bottom drawers (filters, confirmations)
+  - Added `GestureHandlerRootView` wrapper in `App.tsx`
+  - Added `react-native-reanimated/plugin` to `babel.config.js`
+- **Calendar Positioning:** Attempted to implement auto-scroll to show selected date at bottom of collapsed panel
+  - Multiple approaches tried: scroll calculations from top, from bottom, using scrollToEnd + offset
+  - Issue: `scrollToEnd()` worked, but `scrollTo({ y: number })` consistently failed to reach target position
+
+### Issues Discovered
+- **ScrollView Layout Conflicts:** When ScrollView was inside TopSheet, `scrollTo()` method didn't reliably position content
+  - `scrollToEnd()` worked perfectly, but calculated scroll positions were consistently off by 100-1000px
+  - Scroll events fired correctly, but visual content didn't move to expected positions
+- **Gesture Coordination:** Pan gestures for drawer vs ScrollView's native scroll gesture created conflicts
+- **Layout Constraints:** `flexGrow: 1` + `justifyContent: 'flex-end'` prevented content from overflowing (required for scrolling)
+
+### Reverted
+- **All changes reverted** to commit `115275a` (before TopSheet migration)
+- Calendar panel back to working `TopSheetScrollView` implementation
+- Lost: TopSheet component, @gorhom/bottom-sheet installation, scroll positioning attempts
+
+### Next Steps
+- **Re-attempt TopSheet migration** with lessons learned:
+  - Start with minimal working TopSheet (just expand/collapse, no scroll positioning)
+  - Get basic scrolling working first before attempting auto-positioning
+  - Consider alternative approaches: inverted FlatList, reversed data array, different layout strategy
+  - May need to rethink fundamental approach to "selected date at bottom" feature
+
+### Lessons Learned
+- Don't combine multiple complex changes (migration + new feature) in one session
+- Test each piece independently before integrating
+- React Native ScrollView behavior differs significantly from web CSS scrolling
+- `scrollTo()` reliability issues may indicate architectural mismatch
+
+---
+
 ## [2026-02-07] - Exercise Accordion Cards, Duplicate Sheet, Current Day Action
 
 ### Added
