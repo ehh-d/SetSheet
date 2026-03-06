@@ -8,15 +8,13 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { format, parseISO } from 'date-fns';
-import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
-import { WorkoutExerciseWithDetails, WorkoutStage } from '../types';
+import { WorkoutExerciseWithDetails } from '../types';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { calculateVolume } from '../utils/calculations';
 import { StatRow } from '../components/stats/StatRow';
-import { StageHeader } from '../components/timeline/StageHeader';
 import { ExerciseSummaryCard } from '../components/exercise/ExerciseSummaryCard';
 
 type WorkoutSummaryNavigationProp = NativeStackNavigationProp<
@@ -30,14 +28,7 @@ interface WorkoutData {
   workout_date: string;
   name: string | null;
   notes: string | null;
-  workout_stages: WorkoutStage[];
   workout_exercises: WorkoutExerciseWithDetails[];
-}
-
-// Group exercises by stage
-interface StageGroup {
-  stage: WorkoutStage | null;
-  exercises: WorkoutExerciseWithDetails[];
 }
 
 export default function WorkoutSummaryScreen() {
@@ -61,24 +52,15 @@ export default function WorkoutSummaryScreen() {
         workout_date,
         name,
         notes,
-        workout_stages (
-          id,
-          name,
-          sort_order
-        ),
         workout_exercises (
           id,
-          exercise_variation_id,
+          exercise_id,
+          equipment,
           sort_order,
-          stage_id,
-          exercise_variations (
+          exercises (
             id,
-            equipment,
-            exercises (
-              id,
-              name,
-              muscle_group
-            )
+            name,
+            muscle_group
           ),
           sets (
             id,
@@ -125,31 +107,9 @@ export default function WorkoutSummaryScreen() {
     return sum + exerciseVolume;
   }, 0);
 
-  // Group exercises by stage
-  const stageGroups: StageGroup[] = [];
-  const sortedStages = [...(workout.workout_stages || [])].sort(
+  const sortedExercises = [...workout.workout_exercises].sort(
     (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
   );
-
-  // Create groups for each stage
-  sortedStages.forEach(stage => {
-    const stageExercises = workout.workout_exercises
-      .filter(ex => ex.stage_id === stage.id)
-      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-
-    if (stageExercises.length > 0) {
-      stageGroups.push({ stage, exercises: stageExercises });
-    }
-  });
-
-  // Add exercises without a stage
-  const unstaged = workout.workout_exercises
-    .filter(ex => !ex.stage_id)
-    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-
-  if (unstaged.length > 0) {
-    stageGroups.push({ stage: null, exercises: unstaged });
-  }
 
   // Format date for header
   const formattedDate = format(parseISO(workout.workout_date), 'MMMM do');
@@ -158,22 +118,8 @@ export default function WorkoutSummaryScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.navigate('MainTabs')}
-        >
-          <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <View style={styles.dateTitleRow}>
-            <Text style={styles.dateTitle}>{formattedDate}</Text>
-            <TouchableOpacity style={styles.editButton}>
-              <Ionicons name="pencil" size={16} color="#757575" />
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.workoutSubtitle}>{workout.name || 'Workout'}</Text>
-        </View>
-        <View style={styles.headerSpacer} />
+        <Text style={styles.workoutTitle}>{workout.name || 'Workout'}</Text>
+        <Text style={styles.dateSubtitle}>{formattedDate}</Text>
       </View>
 
       <ScrollView
@@ -183,7 +129,7 @@ export default function WorkoutSummaryScreen() {
       >
         {/* Stats Section */}
         <View style={styles.statsSection}>
-          <Text style={styles.sectionTitle}>Exercises</Text>
+          <Text style={styles.sectionTitle}>Workout Summary</Text>
           <View style={styles.statsCard}>
             <StatRow label="Exercises" value={totalExercises} />
             <StatRow label="Total Sets" value={totalSets} />
@@ -195,41 +141,31 @@ export default function WorkoutSummaryScreen() {
         {/* Notes Section */}
         {workout.notes && (
           <View style={styles.notesSection}>
-            <View style={styles.notesTitleRow}>
-              <Text style={styles.notesLabel}>Workout Notes</Text>
-              <TouchableOpacity style={styles.editButton}>
-                <Ionicons name="pencil" size={16} color="#757575" />
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.notesLabel}>Workout Notes</Text>
             <Text style={styles.notesText}>{workout.notes}</Text>
           </View>
         )}
 
-        {/* Exercise List by Stage */}
+        {/* Exercise List */}
         <View style={styles.exercisesSection}>
-          {stageGroups.map((group, groupIndex) => (
-            <View key={group.stage?.id || 'unstaged'}>
-              {/* Stage Header */}
-              {group.stage && (
-                <StageHeader
-                  title={group.stage.name || 'Stage'}
-                />
-              )}
-
-              {/* Exercise Cards */}
-              {group.exercises.map((exercise) => (
-                <ExerciseSummaryCard
-                  key={exercise.id}
-                  exercise={exercise}
-                />
-              ))}
-            </View>
+          {sortedExercises.map((exercise) => (
+            <ExerciseSummaryCard
+              key={exercise.id}
+              exercise={exercise}
+            />
           ))}
         </View>
-
-        {/* Bottom padding */}
-        <View style={styles.bottomPadding} />
       </ScrollView>
+
+      {/* Fixed Close Button */}
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={styles.closeButton}
+          onPress={() => navigation.navigate('MainTabs')}
+        >
+          <Text style={styles.closeButtonText}>Close Summary</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -243,49 +179,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 16,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerCenter: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  dateTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  dateTitle: {
-    fontSize: 20,
+  workoutTitle: {
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
-  editButton: {
-    marginLeft: 8,
-    padding: 4,
-  },
-  workoutSubtitle: {
+  dateSubtitle: {
     fontSize: 14,
     color: '#757575',
-    marginTop: 2,
-  },
-  headerSpacer: {
-    width: 40,
+    marginTop: 4,
   },
   content: {
     flex: 1,
   },
   contentContainer: {
     paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingBottom: 20,
   },
   statsSection: {
     marginBottom: 24,
@@ -296,24 +209,15 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginBottom: 12,
   },
-  statsCard: {
-    backgroundColor: '#1B1B1B',
-    borderRadius: 32,
-    paddingHorizontal: 24,
-    paddingVertical: 8,
-  },
+  statsCard: {},
   notesSection: {
     marginBottom: 24,
-  },
-  notesTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
   },
   notesLabel: {
     fontSize: 16,
     fontWeight: '600',
     color: '#D5D5D5',
+    marginBottom: 8,
   },
   notesText: {
     fontSize: 14,
@@ -323,7 +227,22 @@ const styles = StyleSheet.create({
   exercisesSection: {
     marginTop: 8,
   },
-  bottomPadding: {
-    height: 40,
+  footer: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#222222',
+  },
+  closeButton: {
+    backgroundColor: '#2A2A2A',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

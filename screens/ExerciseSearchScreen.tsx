@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,13 +9,21 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Animated,
+  Dimensions,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
-import { ExerciseWithVariations } from '../types';
+import { Exercise, Category } from '../types';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { WorkoutHeader } from '../components/WorkoutHeader';
 
 type ExerciseSearchNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -24,57 +32,128 @@ type ExerciseSearchNavigationProp = NativeStackNavigationProp<
 type ExerciseSearchRouteProp = RouteProp<RootStackParamList, 'ExerciseSearch'>;
 
 interface SelectedExercise {
-  variationId: string;
+  exerciseId: string;
   exerciseName: string;
   equipment: string;
+  muscleGroup: string;
+  proposedSets?: number;
+  proposedRepsMin?: number;
 }
 
-export default function ExerciseSearchScreen() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [exercises, setExercises] = useState<ExerciseWithVariations[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedExercises, setSelectedExercises] = useState<SelectedExercise[]>([]);
-  const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null);
-  const [muscleGroupFilter, setMuscleGroupFilter] = useState<string>('All');
+const getExerciseKey = (exerciseId: string, equipment: string) => `${exerciseId}::${equipment}`;
 
+const CATEGORY_SUBTITLES: Record<string, string> = {
+  'Pull Day': 'Back, Biceps, Rear Delts',
+  'Push Day': 'Chest, Shoulders, Triceps',
+  'Leg Day': 'Quads, Hamstrings, Glutes',
+  'Upper Body': 'Chest, Back, Shoulders, Arms',
+  'Lower Body': 'Quads, Hamstrings, Glutes, Calves',
+  'Full Body': 'All Muscle Groups',
+  'Core': 'Abs, Obliques, Lower Back',
+  'Cardio': 'Cardiovascular Endurance',
+};
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+export default function ExerciseSearchScreen() {
   const navigation = useNavigation<ExerciseSearchNavigationProp>();
   const route = useRoute<ExerciseSearchRouteProp>();
   const { session } = useAuth();
+  const insets = useSafeAreaInsets();
 
-  const { categoryId, categoryName, date } = route.params;
+  const { categoryId, categoryName, date, existingWorkoutId } = route.params;
 
-  // Get unique muscle groups from exercises
-  const muscleGroups = ['All', ...Array.from(new Set(exercises.map(ex => ex.muscle_group))).sort()];
+  const [year, month, day] = date.split('-').map(Number);
+  const dateObj = new Date(year, month - 1, day);
+  const formattedDate = `${MONTHS[dateObj.getMonth()]} ${dateObj.getDate()}`;
+  const ordinalDay = dateObj.getDate();
+
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [allCategories, setAllCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedExercises, setSelectedExercises] = useState<SelectedExercise[]>(
+    (route.params.preSelectedExercises ?? []).map(ex => ({
+      exerciseId: ex.exerciseId,
+      exerciseName: ex.exerciseName,
+      equipment: ex.equipment,
+      muscleGroup: ex.muscleGroup,
+      proposedSets: ex.proposedSets,
+      proposedRepsMin: ex.proposedRepsMin,
+    }))
+  );
+  const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategories, setActiveCategories] = useState<Category[]>(() => {
+    if (!categoryId) return [];
+    return [{ id: categoryId, name: categoryName, category_group: '', created_at: null, muscle_groups: null }];
+  });
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(100);
+  const [existingExerciseKeys, setExistingExerciseKeys] = useState<Set<string>>(new Set());
+
+  // Editable sheet name
+  const [sheetName, setSheetName] = useState(categoryName || 'Workout');
+  const [isEditNameVisible, setIsEditNameVisible] = useState(false);
+  const [editingName, setEditingName] = useState('');
+
+  const panelHeightAnim = useRef(new Animated.Value(120)).current;
+  const collapsedHeightRef = useRef(120);
+  const isAnimatingRef = useRef(false);
 
   useEffect(() => {
-    loadExercises();
-  }, [categoryId]);
+    loadData();
+  }, []);
 
-  const loadExercises = async () => {
-    const { data, error } = await supabase
-      .from('exercises')
-      .select(`
-        *,
-        exercise_variations (*)
-      `)
-      .contains('category_ids', [categoryId])
-      .order('name');
+  const loadData = async () => {
+    const promises: Promise<any>[] = [
+      supabase.from('exercises').select('*').order('name'),
+      supabase.from('categories').select('*').order('name'),
+    ];
 
-    if (!error && data) {
-      setExercises(data as ExerciseWithVariations[]);
+    if (existingWorkoutId) {
+      promises.push(
+        supabase
+          .from('workout_exercises')
+          .select(`exercise_id, equipment, sort_order, exercises ( id, name, muscle_group )`)
+          .eq('workout_id', existingWorkoutId)
+          .order('sort_order')
+      );
     }
+
+    const [exercisesResult, categoriesResult, existingResult] = await Promise.all(promises);
+
+    if (!exercisesResult.error && exercisesResult.data) {
+      setExercises(exercisesResult.data as Exercise[]);
+    }
+    if (!categoriesResult.error && categoriesResult.data) {
+      setAllCategories(categoriesResult.data as Category[]);
+    }
+    if (existingResult && !existingResult.error && existingResult.data) {
+      const existing = existingResult.data;
+      setExistingExerciseKeys(new Set(existing.map(we => getExerciseKey(we.exercise_id, we.equipment ?? ''))));
+      setSelectedExercises(existing.map(we => ({
+        exerciseId: we.exercise_id,
+        exerciseName: we.exercises.name,
+        equipment: we.equipment ?? '',
+        muscleGroup: we.exercises.muscle_group,
+      })));
+    }
+
     setLoading(false);
   };
 
   const getFilteredExercises = () => {
     let filtered = exercises;
 
-    // Apply muscle group filter
-    if (muscleGroupFilter !== 'All') {
-      filtered = filtered.filter(ex => ex.muscle_group === muscleGroupFilter);
+    if (activeCategories.length > 0) {
+      const activeCategoryIds = activeCategories.map(c => c.id);
+      filtered = filtered.filter(ex =>
+        ex.category_ids?.some(id => activeCategoryIds.includes(id))
+      );
     }
 
-    // Apply search query
     if (searchQuery) {
       filtered = filtered.filter(ex =>
         ex.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -84,34 +163,77 @@ export default function ExerciseSearchScreen() {
     return filtered;
   };
 
+  const getCardSubtitle = (exercise: Exercise) => {
+    if (exercise.specific_muscles && exercise.specific_muscles.length > 0) {
+      return `${exercise.muscle_group} (${exercise.specific_muscles.join(' & ')})`;
+    }
+    return exercise.muscle_group;
+  };
+
   const toggleExpanded = (exerciseId: string) => {
     setExpandedExerciseId(expandedExerciseId === exerciseId ? null : exerciseId);
   };
 
-  const handleAddExercise = (exercise: ExerciseWithVariations, variationId?: string) => {
-    // If no variation specified, use the first one or let user choose
-    const variation = variationId
-      ? exercise.exercise_variations.find(v => v.id === variationId)
-      : exercise.exercise_variations[0];
-
-    if (!variation) return;
-
-    // Check if this variation is already selected (prevent duplicates)
-    if (selectedExercises.some(ex => ex.variationId === variation.id)) {
-      return;
-    }
-
-    const newSelection: SelectedExercise = {
-      variationId: variation.id,
-      exerciseName: exercise.name,
-      equipment: variation.equipment,
-    };
-
-    setSelectedExercises([...selectedExercises, newSelection]);
+  const toggleCategory = (category: Category) => {
+    setActiveCategories(prev => {
+      if (prev.some(c => c.id === category.id)) {
+        return prev.filter(c => c.id !== category.id);
+      }
+      return [...prev, category];
+    });
   };
 
-  const handleRemoveExercise = (variationId: string) => {
-    setSelectedExercises(selectedExercises.filter(ex => ex.variationId !== variationId));
+  const handleAddExercise = (exercise: Exercise, equipment?: string) => {
+    const eq = equipment ?? exercise.equipment?.[0];
+
+    if (!eq) return;
+    const key = getExerciseKey(exercise.id, eq);
+    if (selectedExercises.some(ex => getExerciseKey(ex.exerciseId, ex.equipment) === key)) return;
+
+    setSelectedExercises(prev => [...prev, {
+      exerciseId: exercise.id,
+      exerciseName: exercise.name,
+      equipment: eq,
+      muscleGroup: exercise.muscle_group,
+    }]);
+  };
+
+  const handleRemoveExercise = (key: string) => {
+    setSelectedExercises(prev => prev.filter(ex => getExerciseKey(ex.exerciseId, ex.equipment) !== key));
+  };
+
+  const openFilterPanel = () => {
+    setIsFilterPanelOpen(true);
+    isAnimatingRef.current = true;
+    Animated.timing(panelHeightAnim, {
+      toValue: SCREEN_HEIGHT * 0.78,
+      duration: 300,
+      useNativeDriver: false,
+    }).start(() => { isAnimatingRef.current = false; });
+  };
+
+  const closeFilterPanel = () => {
+    isAnimatingRef.current = true;
+    Animated.timing(panelHeightAnim, {
+      toValue: collapsedHeightRef.current,
+      duration: 250,
+      useNativeDriver: false,
+    }).start(() => {
+      isAnimatingRef.current = false;
+      setIsFilterPanelOpen(false);
+    });
+  };
+
+  const openEditName = () => {
+    setEditingName(sheetName);
+    setIsEditNameVisible(true);
+  };
+
+  const saveEditName = () => {
+    if (editingName.trim()) {
+      setSheetName(editingName.trim());
+    }
+    setIsEditNameVisible(false);
   };
 
   const handleStartWorkout = async () => {
@@ -123,7 +245,6 @@ export default function ExerciseSearchScreen() {
     if (!session?.user) return;
 
     try {
-      // Check if any workout exists for this date
       const { data: existingWorkouts } = await supabase
         .from('workouts')
         .select('id, status')
@@ -133,18 +254,11 @@ export default function ExerciseSearchScreen() {
       if (existingWorkouts && existingWorkouts.length > 0) {
         const existingWorkout = existingWorkouts[0];
 
-        // If workout already exists, navigate to it instead of creating a new one
         if (existingWorkout.status === 'completed') {
           Alert.alert(
             'Workout Already Exists',
             'You already have a completed workout for this date.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'View Workout',
-                onPress: () => navigation.navigate('WorkoutSummary', { workoutId: existingWorkout.id })
-              }
-            ]
+            [{ text: 'OK', style: 'cancel' }]
           );
           return;
         } else if (existingWorkout.status === 'active') {
@@ -153,37 +267,28 @@ export default function ExerciseSearchScreen() {
             'You have an active workout for this date.',
             [
               { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Continue Workout',
-                onPress: () => navigation.navigate('ActiveWorkout', { workoutId: existingWorkout.id })
-              }
+              { text: 'Continue Workout', onPress: () => navigation.navigate('ActiveWorkout', { workoutId: existingWorkout.id }) }
             ]
           );
           return;
         }
       }
 
-      // Create workout (using correct column names from database)
-      const { data: workout, error: workoutError} = await supabase
+      const { data: workout, error: workoutError } = await supabase
         .from('workouts')
         .insert({
           user_id: session.user.id,
           workout_date: date,
-          category_id: categoryId,
-          name: categoryName,
+          category_id: categoryId || null,
+          name: sheetName,
           status: 'active',
         })
         .select()
         .single();
 
-      if (workoutError) {
-        console.error('Workout creation error:', workoutError);
-        throw workoutError;
-      }
-
+      if (workoutError) throw workoutError;
       if (!workout) throw new Error('Workout creation failed');
 
-      // Create default stage (using correct column name: sort_order)
       const { data: stage, error: stageError } = await supabase
         .from('workout_stages')
         .insert({
@@ -194,117 +299,170 @@ export default function ExerciseSearchScreen() {
         .select()
         .single();
 
-      if (stageError) {
-        console.error('Stage creation error:', stageError);
-        throw stageError;
-      }
-
+      if (stageError) throw stageError;
       if (!stage) throw new Error('Stage creation failed');
 
-      // Add exercises to workout (using correct column names)
-      const workoutExercises = selectedExercises.map((ex, index) => ({
-        workout_id: workout.id,
-        stage_id: stage.id,
-        exercise_variation_id: ex.variationId,
-        sort_order: index,
-        proposed_sets: 3,
-        proposed_reps_min: 8,
-        proposed_reps_max: 12,
-      }));
+      for (let i = 0; i < selectedExercises.length; i++) {
+        const ex = selectedExercises[i];
+        const setCount = ex.proposedSets ?? 1;
+        const repsMin = ex.proposedRepsMin ?? null;
 
-      const { error: exercisesError } = await supabase
-        .from('workout_exercises')
-        .insert(workoutExercises);
+        const { data: we, error: weError } = await supabase
+          .from('workout_exercises')
+          .insert({
+            workout_id: workout.id,
+            stage_id: stage.id,
+            exercise_id: ex.exerciseId,
+            equipment: ex.equipment,
+            sort_order: i,
+            proposed_sets: setCount,
+            proposed_reps_min: repsMin,
+            proposed_reps_max: repsMin,
+          })
+          .select('id')
+          .single();
 
-      if (exercisesError) {
-        console.error('Exercises creation error:', exercisesError);
-        throw exercisesError;
+        if (weError) throw weError;
+        if (!we) continue;
+
+        const setRows = Array.from({ length: setCount }, (_, idx) => ({
+          workout_exercise_id: we.id,
+          set_number: idx + 1,
+          reps: repsMin,
+          weight: null,
+          is_completed: false,
+        }));
+        await supabase.from('sets').insert(setRows);
       }
 
-      // Navigate to active workout
       navigation.navigate('ActiveWorkout', { workoutId: workout.id });
     } catch (error: any) {
       Alert.alert('Error', error.message);
     }
   };
 
-  const groupedExercises = getFilteredExercises().reduce((acc, exercise) => {
+  const handleAddToWorkout = async () => {
+    if (selectedExercises.length === 0) {
+      Alert.alert('No Exercises', 'Please select at least one exercise');
+      return;
+    }
+    if (!existingWorkoutId) return;
+
+    try {
+      const stagesResult = await supabase
+        .from('workout_stages')
+        .select('id')
+        .eq('workout_id', existingWorkoutId)
+        .order('sort_order')
+        .limit(1);
+
+      const stageId = stagesResult.data?.[0]?.id;
+
+      const newExercises = selectedExercises.filter(
+        ex => !existingExerciseKeys.has(getExerciseKey(ex.exerciseId, ex.equipment))
+      );
+
+      if (newExercises.length === 0) {
+        navigation.navigate('ActiveWorkout', { workoutId: existingWorkoutId });
+        return;
+      }
+
+      // Use each exercise's index in the full panel order as its sort_order
+      const newWorkoutExercises = newExercises.map((ex) => ({
+        workout_id: existingWorkoutId,
+        stage_id: stageId,
+        exercise_id: ex.exerciseId,
+        equipment: ex.equipment,
+        sort_order: selectedExercises.findIndex(
+          s => s.exerciseId === ex.exerciseId && s.equipment === ex.equipment
+        ),
+        proposed_sets: 3,
+        proposed_reps_min: 8,
+        proposed_reps_max: 12,
+      }));
+
+      // Update sort_order for existing exercises to reflect panel reorder
+      const existingUpdates = selectedExercises
+        .filter(ex => existingExerciseKeys.has(getExerciseKey(ex.exerciseId, ex.equipment)))
+        .map((ex) => ({
+          exerciseId: ex.exerciseId,
+          equipment: ex.equipment,
+          sort_order: selectedExercises.findIndex(
+            s => s.exerciseId === ex.exerciseId && s.equipment === ex.equipment
+          ),
+        }));
+
+      await Promise.all([
+        supabase.from('workout_exercises').insert(newWorkoutExercises),
+        ...existingUpdates.map(({ exerciseId, equipment, sort_order }) =>
+          supabase
+            .from('workout_exercises')
+            .update({ sort_order })
+            .eq('workout_id', existingWorkoutId)
+            .eq('exercise_id', exerciseId)
+            .eq('equipment', equipment)
+        ),
+      ]);
+
+      navigation.navigate('ActiveWorkout', { workoutId: existingWorkoutId });
+    } catch (error: any) {
+      Alert.alert('Error', error.message);
+    }
+  };
+
+  const filteredExercises = getFilteredExercises();
+
+  const groupedExercises = filteredExercises.reduce((acc, exercise) => {
     const firstLetter = exercise.name[0].toUpperCase();
     if (!acc[firstLetter]) acc[firstLetter] = [];
     acc[firstLetter].push(exercise);
     return acc;
-  }, {} as Record<string, ExerciseWithVariations[]>);
+  }, {} as Record<string, Exercise[]>);
 
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>‹ Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{categoryName}</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <WorkoutHeader
+        date={formattedDate}
+        ordinalDay={ordinalDay}
+        workoutName={sheetName}
+        subtitle={`${selectedExercises.length} Exercises Selected`}
+        onCancel={() => navigation.goBack()}
+        onStart={selectedExercises.length > 0 ? (existingWorkoutId ? handleAddToWorkout : handleStartWorkout) : undefined}
+        startLabel={existingWorkoutId ? 'Save' : 'Start'}
+        onEditName={openEditName}
+        selectedItems={selectedExercises.map(ex => ({
+          variationId: getExerciseKey(ex.exerciseId, ex.equipment),
+          exerciseName: ex.exerciseName,
+          muscleGroup: `${ex.equipment} · ${ex.muscleGroup}`,
+        }))}
+        onRemoveItem={(key) => {
+          if (!existingExerciseKeys.has(key)) {
+            handleRemoveExercise(key);
+          }
+        }}
+        onReorderItems={(reordered) => {
+          setSelectedExercises(prev =>
+            reordered
+              .map(item => prev.find(ex => getExerciseKey(ex.exerciseId, ex.equipment) === item.variationId))
+              .filter(Boolean) as SelectedExercise[]
+          );
+        }}
+      />
 
-      {/* Search */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search exercises..."
-          placeholderTextColor="#888"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
 
-      {/* Muscle Group Filter */}
-      <View style={styles.filterContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {muscleGroups.map((group) => (
-            <TouchableOpacity
-              key={group}
-              style={[
-                styles.filterChip,
-                muscleGroupFilter === group && styles.filterChipActive,
-              ]}
-              onPress={() => setMuscleGroupFilter(group)}
-            >
-              <Text
-                style={[
-                  styles.filterChipText,
-                  muscleGroupFilter === group && styles.filterChipTextActive,
-                ]}
-              >
-                {group}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* Selected Exercises */}
-      {selectedExercises.length > 0 && (
-        <View style={styles.selectedContainer}>
-          <Text style={styles.selectedTitle}>Selected ({selectedExercises.length})</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {selectedExercises.map((ex, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.selectedChip}
-                onPress={() => handleRemoveExercise(ex.variationId)}
-              >
-                <Text style={styles.selectedChipText}>
-                  {ex.exerciseName} ({ex.equipment})
-                </Text>
-                <Text style={styles.selectedChipRemove}>×</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+      {/* Exercise list */}
+      <ScrollView
+        style={styles.exerciseList}
+        contentContainerStyle={{ paddingBottom: bottomPanelHeight + 8 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Exercises count header — scrolls with list */}
+        <View style={styles.listHeader}>
+          <Text style={styles.listHeaderTitle}>Exercises</Text>
+          <Text style={styles.listHeaderCount}>{filteredExercises.length}</Text>
         </View>
-      )}
 
-      {/* Exercise List */}
-      <ScrollView style={styles.exerciseList}>
         {loading ? (
           <ActivityIndicator size="large" color="#FFFFFF" style={styles.loader} />
         ) : (
@@ -314,83 +472,124 @@ export default function ExerciseSearchScreen() {
               <View key={letter}>
                 <Text style={styles.sectionHeader}>{letter}</Text>
                 {groupedExercises[letter].map(exercise => {
+                  const equipmentList = exercise.equipment ?? [];
                   const isExpanded = expandedExerciseId === exercise.id;
-                  const hasMultipleVariations = exercise.exercise_variations.length > 1;
-                  const isSingleExerciseSelected = !hasMultipleVariations && selectedExercises.some(ex =>
-                    exercise.exercise_variations.some(v => v.id === ex.variationId)
-                  );
+                  const hasMultipleVariations = equipmentList.length > 1;
+                  const isSingleSelected = !hasMultipleVariations &&
+                    selectedExercises.some(ex =>
+                      ex.exerciseId === exercise.id && ex.equipment === (equipmentList[0] ?? '')
+                    );
+                  const hasAnyVariationSelected = hasMultipleVariations &&
+                    selectedExercises.some(ex => ex.exerciseId === exercise.id);
+                  const cardIsLight = isSingleSelected || hasAnyVariationSelected;
+
+                  const selectedEquipmentNames = hasMultipleVariations
+                    ? equipmentList.filter(eq => selectedExercises.some(
+                        ex => ex.exerciseId === exercise.id && ex.equipment === eq
+                      ))
+                    : [];
 
                   return (
-                    <View key={exercise.id} style={[
-                      styles.exerciseCard,
-                      isSingleExerciseSelected && styles.exerciseCardSelected
-                    ]}>
+                    <View
+                      key={exercise.id}
+                      style={[styles.exerciseCard, cardIsLight && styles.exerciseCardLight]}
+                    >
                       <TouchableOpacity
                         style={styles.exerciseMain}
-                        onPress={() => toggleExpanded(exercise.id)}
+                        onPress={() => {
+                          if (hasMultipleVariations) {
+                            toggleExpanded(exercise.id);
+                          } else {
+                            if (isSingleSelected) {
+                              handleRemoveExercise(getExerciseKey(exercise.id, equipmentList[0] ?? ''));
+                            } else {
+                              handleAddExercise(exercise);
+                            }
+                          }
+                        }}
+                        activeOpacity={0.7}
                       >
                         <View style={styles.exerciseInfo}>
-                          <Text style={[
-                            styles.exerciseName,
-                            isSingleExerciseSelected && styles.exerciseNameSelected
-                          ]}>{exercise.name}</Text>
-                          <Text style={[
-                            styles.muscleGroup,
-                            isSingleExerciseSelected && styles.muscleGroupSelected
-                          ]}>{exercise.muscle_group}</Text>
+                          <Text style={[styles.exerciseName, cardIsLight && styles.exerciseNameDark]}>
+                            {exercise.name}
+                          </Text>
+                          <Text style={[styles.exerciseSubtitle, cardIsLight && styles.exerciseSubtitleDark]}>
+                            {getCardSubtitle(exercise)}
+                          </Text>
                         </View>
-                        {/* Only show +/X button for single-variation exercises */}
-                        {!hasMultipleVariations && (
-                          <TouchableOpacity
-                            style={[
-                              styles.addButton,
-                              isSingleExerciseSelected && styles.removeButton
-                            ]}
-                            onPress={() => {
-                              if (isSingleExerciseSelected) {
-                                handleRemoveExercise(exercise.exercise_variations[0].id);
-                              } else {
-                                handleAddExercise(exercise);
-                              }
-                            }}
-                          >
-                            <Text style={[
-                              styles.addButtonText,
-                              isSingleExerciseSelected && styles.removeButtonText
-                            ]}>
-                              {isSingleExerciseSelected ? '×' : '+'}
-                            </Text>
-                          </TouchableOpacity>
-                        )}
+
+                        <View style={styles.exerciseRight}>
+                          {hasMultipleVariations ? (
+                            <Ionicons
+                              name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                              size={20}
+                              color={cardIsLight ? '#1B1B1B' : '#FFFFFF'}
+                            />
+                          ) : (
+                            <View style={isSingleSelected ? styles.actionButtonRemove : undefined}>
+                              <Text style={[styles.actionButtonText, isSingleSelected && styles.actionButtonTextRemove]}>
+                                {isSingleSelected ? '×' : '+'}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
                       </TouchableOpacity>
+
+                      {!isExpanded && selectedEquipmentNames.length > 0 && (
+                        <View style={styles.variationsContainer}>
+                          <View style={[styles.variationsDivider, styles.variationsDividerLight]} />
+                          {equipmentList
+                            .filter(eq => selectedExercises.some(
+                              ex => ex.exerciseId === exercise.id && ex.equipment === eq
+                            ))
+                            .map(eq => (
+                              <TouchableOpacity
+                                key={eq}
+                                style={styles.variationRow}
+                                onPress={() => handleRemoveExercise(getExerciseKey(exercise.id, eq))}
+                              >
+                                <Text style={[styles.variationText, styles.variationTextOnLight]}>
+                                  {eq}
+                                </Text>
+                                <Text style={[styles.actionButtonText, styles.actionButtonTextDark]}>×</Text>
+                              </TouchableOpacity>
+                            ))}
+                        </View>
+                      )}
 
                       {isExpanded && (
                         <View style={styles.variationsContainer}>
-                          <Text style={styles.variationsTitle}>Equipment:</Text>
-                          {exercise.exercise_variations.map(variation => {
-                            const isVariationSelected = selectedExercises.some(ex => ex.variationId === variation.id);
+                          <View style={[styles.variationsDivider, cardIsLight && styles.variationsDividerLight]} />
+                          {equipmentList.map(eq => {
+                            const isVariationSelected = selectedExercises.some(
+                              ex => ex.exerciseId === exercise.id && ex.equipment === eq
+                            );
                             return (
                               <TouchableOpacity
-                                key={variation.id}
+                                key={eq}
                                 style={[
                                   styles.variationRow,
-                                  isVariationSelected && styles.variationRowSelected
+                                  cardIsLight && !isVariationSelected && styles.variationRowOnLight,
+                                  isVariationSelected && styles.variationRowSelected,
                                 ]}
                                 onPress={() => {
                                   if (isVariationSelected) {
-                                    handleRemoveExercise(variation.id);
+                                    handleRemoveExercise(getExerciseKey(exercise.id, eq));
                                   } else {
-                                    handleAddExercise(exercise, variation.id);
+                                    handleAddExercise(exercise, eq);
                                   }
                                 }}
                               >
                                 <Text style={[
                                   styles.variationText,
-                                  isVariationSelected && styles.variationTextSelected
-                                ]}>{variation.equipment}</Text>
+                                  cardIsLight && !isVariationSelected && styles.variationTextOnLight,
+                                  isVariationSelected && styles.variationTextSelected,
+                                ]}>
+                                  {eq}
+                                </Text>
                                 <Text style={[
-                                  styles.addButtonText,
-                                  isVariationSelected && styles.removeButtonText
+                                  styles.actionButtonText,
+                                  (isVariationSelected || (cardIsLight && !isVariationSelected)) && styles.actionButtonTextDark,
                                 ]}>
                                   {isVariationSelected ? '×' : '+'}
                                 </Text>
@@ -407,16 +606,172 @@ export default function ExerciseSearchScreen() {
         )}
       </ScrollView>
 
-      {/* Start Workout Button */}
-      {selectedExercises.length > 0 && (
-        <View style={styles.footer}>
-          <TouchableOpacity style={styles.startButton} onPress={handleStartWorkout}>
-            <Text style={styles.startButtonText}>
-              Start Workout ({selectedExercises.length} exercises)
+      {/* Bottom panel — unified search + filter */}
+      <Animated.View
+        style={[styles.bottomPanel, { height: panelHeightAnim }]}
+      >
+        {isFilterPanelOpen ? (
+          <View style={[styles.filterPanelContent, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.filterPanelHeader}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={[styles.filterChipsRow, { marginTop: 0 }]}
+                contentContainerStyle={styles.filterChipsContent}
+              >
+                {activeCategories.map(cat => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={styles.activeChip}
+                    onPress={() => toggleCategory(cat)}
+                  >
+                    <View style={styles.chipRemoveCircle}>
+                      <Ionicons name="close" size={14} color="#D5D5D5" />
+                    </View>
+                    <Text style={styles.activeChipText}>{cat.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.filterCloseButton} onPress={closeFilterPanel}>
+                <Ionicons name="close" size={22} color="#1B1B1B" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.filterPanelSubtitle}>
+              {filteredExercises.length} exercises Available
             </Text>
-          </TouchableOpacity>
-        </View>
-      )}
+
+            <ScrollView style={styles.filterCategoryList} showsVerticalScrollIndicator={false}>
+              {allCategories.map(cat => {
+                const isActive = activeCategories.some(c => c.id === cat.id);
+                const subtitle = CATEGORY_SUBTITLES[cat.name] || cat.muscle_groups?.join(', ') || '';
+                return (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[styles.filterCategoryRow, isActive && styles.filterCategoryRowActive]}
+                    onPress={() => toggleCategory(cat)}
+                  >
+                    <View style={styles.filterCategoryInfo}>
+                      <Text style={[styles.filterCategoryName, isActive && styles.filterCategoryNameActive]}>
+                        {cat.name}
+                      </Text>
+                      {subtitle ? (
+                        <Text style={[styles.filterCategorySubtitle, isActive && styles.filterCategorySubtitleActive]}>
+                          {subtitle}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Text style={[styles.filterCategoryAction, isActive && styles.filterCategoryActionActive]}>
+                      {isActive ? '×' : '+'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : (
+          <View
+            style={[styles.bottomPanelCollapsed, { paddingBottom: insets.bottom + 16 }]}
+            onLayout={(e) => {
+              if (!isAnimatingRef.current) {
+                const h = e.nativeEvent.layout.height;
+                collapsedHeightRef.current = h;
+                panelHeightAnim.setValue(h);
+                setBottomPanelHeight(h);
+              }
+            }}
+          >
+            <View style={styles.searchRow}>
+              <View style={styles.searchPill}>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search Exercises"
+                  placeholderTextColor="#888888"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+                    <Ionicons name="close-circle" size={22} color="#888888" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <TouchableOpacity style={styles.filterIconButton} onPress={openFilterPanel} activeOpacity={0.7}>
+                <Ionicons name="options-outline" size={22} color="#1B1B1B" />
+              </TouchableOpacity>
+            </View>
+
+            {activeCategories.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.filterChipsRow}
+                contentContainerStyle={styles.filterChipsContent}
+              >
+                {activeCategories.map(cat => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={styles.activeChip}
+                    onPress={() => toggleCategory(cat)}
+                  >
+                    <View style={styles.chipRemoveCircle}>
+                      <Ionicons name="close" size={14} color="#D5D5D5" />
+                    </View>
+                    <Text style={styles.activeChipText}>{cat.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        )}
+      </Animated.View>
+
+      {/* Edit name modal */}
+      <Modal
+        visible={isEditNameVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsEditNameVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            activeOpacity={1}
+            onPress={() => setIsEditNameVisible(false)}
+          />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Rename Sheet</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editingName}
+              onChangeText={setEditingName}
+              autoFocus
+              selectTextOnFocus
+              placeholder="Sheet name"
+              placeholderTextColor="#999999"
+              returnKeyType="done"
+              onSubmitEditing={saveEditName}
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setIsEditNameVisible(false)}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSaveButton}
+                onPress={saveEditName}
+              >
+                <Text style={styles.modalSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -424,89 +779,121 @@ export default function ExerciseSearchScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#1E1E1E',
   },
-  header: {
+
+  // Bottom panel
+  bottomPanel: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#F0F0F0',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 16,
+  },
+  bottomPanelCollapsed: {
+    paddingHorizontal: 16,
+    paddingTop: 20,
+  },
+  filterPanelContent: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  searchPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: '#757575',
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#1B1B1B',
+  },
+  clearButton: {
+    marginLeft: 8,
+  },
+  filterChipsRow: {
+    marginTop: 14,
+    marginBottom: 4,
+  },
+  filterChipsContent: {
+    paddingRight: 8,
+    alignItems: 'center',
+  },
+  activeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1B1B1B',
+    borderRadius: 30,
+    paddingLeft: 8,
+    paddingRight: 16,
+    paddingVertical: 8,
+    marginRight: 10,
+    gap: 8,
+  },
+  chipRemoveCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D5D5D5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  activeChipText: {
+    color: '#D5D5D5',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  filterIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E0E0E0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // Exercises count header
+  listHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-    paddingTop: 60,
-  },
-  backText: {
-    color: '#888888',
-    fontSize: 18,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  searchContainer: {
-    padding: 20,
-    paddingTop: 0,
-  },
-  searchInput: {
-    backgroundColor: '#2A2A2A',
-    color: '#FFFFFF',
-    fontSize: 16,
-    padding: 12,
-    borderRadius: 8,
-  },
-  filterContainer: {
     paddingHorizontal: 20,
-    paddingBottom: 12,
+    paddingTop: 20,
+    paddingBottom: 4,
   },
-  filterChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: '#2A2A2A',
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
+  listHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
-  filterChipActive: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#FFFFFF',
-  },
-  filterChipText: {
+  listHeaderCount: {
     fontSize: 14,
     color: '#888888',
+    fontWeight: '500',
   },
-  filterChipTextActive: {
-    color: '#1A1A1A',
-    fontWeight: '600',
-  },
-  selectedContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  selectedTitle: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  selectedChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    marginRight: 8,
-  },
-  selectedChipText: {
-    color: '#1A1A1A',
-    fontSize: 12,
-    marginRight: 6,
-  },
-  selectedChipRemove: {
-    color: '#1A1A1A',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
+
+  // Exercise list
   exerciseList: {
     flex: 1,
   },
@@ -514,111 +901,255 @@ const styles = StyleSheet.create({
     marginTop: 40,
   },
   sectionHeader: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#888888',
     paddingHorizontal: 20,
-    paddingVertical: 8,
-    backgroundColor: '#1A1A1A',
+    paddingTop: 16,
+    paddingBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
+
+  // Exercise card
   exerciseCard: {
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#1E1E1E',
+    borderWidth: 1,
+    borderColor: '#505050',
     marginHorizontal: 20,
     marginBottom: 8,
-    borderRadius: 12,
+    borderRadius: 14,
     overflow: 'hidden',
   },
-  exerciseCardSelected: {
+  exerciseCardLight: {
     backgroundColor: '#FFFFFF',
+    borderWidth: 0,
   },
   exerciseMain: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: 14,
   },
   exerciseInfo: {
     flex: 1,
+    marginRight: 8,
   },
   exerciseName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#FFFFFF',
-    marginBottom: 4,
+    marginBottom: 3,
   },
-  exerciseNameSelected: {
-    color: '#1A1A1A',
+  exerciseNameDark: {
+    color: '#1B1B1B',
   },
-  muscleGroup: {
+  exerciseSubtitle: {
     fontSize: 12,
     color: '#888888',
   },
-  muscleGroupSelected: {
+  exerciseSubtitleDark: {
     color: '#666666',
   },
-  addButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+  selectedEquipmentText: {
+    fontSize: 12,
+    color: '#AAAAAA',
+    marginTop: 3,
+    fontWeight: '500',
+  },
+  selectedEquipmentTextDark: {
+    color: '#505050',
+  },
+  exerciseRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionButtonRemove: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#1B1B1B',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  removeButton: {
-    backgroundColor: '#1A1A1A',
+  actionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '300',
+    lineHeight: 26,
+    textAlign: 'center',
   },
-  addButtonText: {
-    color: '#1A1A1A',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  removeButtonText: {
+  actionButtonTextRemove: {
     color: '#FFFFFF',
   },
-  variationsContainer: {
-    borderTopWidth: 1,
-    borderTopColor: '#1A1A1A',
-    padding: 16,
-    paddingTop: 12,
+  actionButtonTextDark: {
+    color: '#1B1B1B',
   },
-  variationsTitle: {
-    fontSize: 12,
-    color: '#888888',
-    marginBottom: 8,
+
+  // Variations
+  variationsContainer: {
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+  },
+  variationsDivider: {
+    height: 1,
+    backgroundColor: '#505050',
+    marginBottom: 4,
+  },
+  variationsDividerLight: {
+    backgroundColor: '#E0E0E0',
   },
   variationRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 12,
     paddingHorizontal: 12,
-    marginVertical: 4,
-    borderRadius: 8,
-    backgroundColor: '#1A1A1A',
+    marginVertical: 2,
+    borderRadius: 10,
+  },
+  variationRowOnLight: {
+    backgroundColor: '#F5F5F5',
   },
   variationRowSelected: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#D5D5D5',
+    borderRadius: 32,
+    height: 56,
   },
   variationText: {
     fontSize: 14,
     color: '#FFFFFF',
+    fontWeight: '500',
+    flex: 1,
+  },
+  variationTextOnLight: {
+    color: '#1B1B1B',
   },
   variationTextSelected: {
-    color: '#1A1A1A',
+    color: '#1B1B1B',
+    fontWeight: '600',
   },
-  footer: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  startButton: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 16,
-    borderRadius: 8,
+
+  filterPanelHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 6,
   },
-  startButtonText: {
-    color: '#1A1A1A',
+  filterCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E0E0E0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  filterPanelSubtitle: {
+    fontSize: 13,
+    color: '#888888',
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  filterCategoryList: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  filterCategoryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 8,
+  },
+  filterCategoryRowActive: {
+    backgroundColor: '#1B1B1B',
+  },
+  filterCategoryInfo: {
+    flex: 1,
+  },
+  filterCategoryName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1B1B1B',
+  },
+  filterCategoryNameActive: {
+    color: '#FFFFFF',
+  },
+  filterCategorySubtitle: {
+    fontSize: 12,
+    color: '#888888',
+    marginTop: 2,
+  },
+  filterCategorySubtitleActive: {
+    color: '#AAAAAA',
+  },
+  filterCategoryAction: {
+    fontSize: 20,
+    color: '#1B1B1B',
+    fontWeight: '300',
+    lineHeight: 24,
+    marginLeft: 12,
+  },
+  filterCategoryActionActive: {
+    color: '#FFFFFF',
+  },
+
+  // Edit name modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    backgroundColor: '#2A2A2A',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 16,
+  },
+  modalInput: {
+    backgroundColor: '#1E1E1E',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 16,
-    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  modalCancelButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 8,
+  },
+  modalCancelText: {
+    fontSize: 15,
+    color: '#888888',
+    fontWeight: '500',
+  },
+  modalSaveButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  modalSaveText: {
+    fontSize: 15,
+    color: '#1B1B1B',
+    fontWeight: '700',
   },
 });

@@ -4,6 +4,169 @@ All notable changes to SetSheet are documented in this file.
 
 ---
 
+## [2026-03-05] - Workout Summary Redesign + Sheet View Actions + UX Fixes
+
+### Added
+- **HomeScreen: Delete workout** — trash icon in completed workout header; confirms via Alert; deletes sets → workout_exercises → workout_stages → workout; clears sheet and refreshes calendar dot
+- **HomeScreen: Edit workout** — pencil icon in completed workout header; sets workout status back to `active` and navigates to ActiveWorkout
+- **HomeScreen: Today indicator** — "TODAY" label in small uppercase appears above the date in all three sheet states (empty, in-progress, completed) when viewing the current day
+- **CalendarPanel: `refreshKey` prop** — incrementing this prop triggers `refreshData()` so the calendar dot updates after workout deletion
+- **ActiveWorkoutScreen: `useFocusEffect`** — reloads workout on every screen focus, ensuring exercises added via "Add Exercise" flow show up with correct previous set data
+
+### Changed
+- **WorkoutSummaryScreen removed** — screen, navigation entry, and route type all deleted; completing a workout now navigates to `MainTabs` with `initialFocusDate` set to the workout date so the sheet view lands on the correct day
+- **HomeScreen: Completed workout header** — workout name (large, bold) on top; date below in muted text; no pencil icon; edit/delete icon buttons in top-right
+- **HomeScreen: Stage grouping removed** — exercises render as flat sorted list; `StageHeader` component no longer used in sheet view
+- **HomeScreen: "Exercises Summary" → "Workout Summary"** — section label updated
+- **HomeScreen: `initialFocusDate` param** — `MainTabParamList.Home` now accepts optional `initialFocusDate`; `useState` initializer reads it on mount so the focus date is correct after completing a workout
+- **ActiveWorkoutScreen: Template set pre-fill** — when `proposed_reps_min` is set (template workout), weight is left blank instead of pre-filling from history; reps still come from template
+- **`get_previous_workout_sets` RPC** — updated in Supabase to use `p_exercise_id` (was `p_exercise_variation_id`); now correctly fetches previous set history after schema migration
+
+### Fixed
+- **Previous sets not showing** — RPC was using old `exercise_variation_id` param; updated to `exercise_id`; also fixed existing sets with `is_completed = false` via `UPDATE sets SET is_completed = true WHERE reps IS NOT NULL AND weight IS NOT NULL`
+- **Calendar dot persisting after delete** — CalendarPanel now re-fetches when `refreshKey` prop changes
+
+---
+
+## [2026-03-05] - DB Schema Migration + Template Flow + Set Pre-Population
+
+### Changed
+- **DB Schema: `exercise_variations` table removed** — equipment now stored as `text[]` directly on `exercises`; removes the triple join (`workout_exercises → exercise_variations → exercises`)
+- **DB Schema: `workout_exercises`** — `exercise_variation_id` replaced with `exercise_id uuid` + `equipment text`; all queries and inserts updated across the codebase
+- **Template flow: TemplatePreview screen bypassed** — after submitting a template, navigates directly to ExerciseSearch with exercises pre-selected; user reviews and can modify before starting
+- **ExerciseSearch: Pre-selected exercises from template** — exercises are toggled on with `proposedSets` and `proposedRepsMin` passed as route params; sets are created at workout start using these values
+
+### Added
+- **ActiveWorkoutScreen: Set pre-population** — three scenarios handled:
+  - *Template workout*: N sets created per exercise (from `proposed_sets`), reps pre-filled from `proposed_reps_min`, weight pre-filled from previous best
+  - *Custom/manual workout*: 1 set created per exercise, reps + weight pre-filled from previous best
+  - *Add Set*: duplicates the last set's reps and weight inputs
+- **ActiveWorkoutScreen: Incomplete sets prompt** — tapping "Complete Workout" when uncompleted sets exist shows an alert asking to mark them all complete; confirms before finishing
+- **ActiveWorkoutScreen: Cancel Workout button removed from footer** — duplicate button removed; Cancel remains in the WorkoutHeader
+
+### Fixed
+- **ExerciseSearch: Empty string UUID** — `category_id: ''` caused `invalid input syntax for type uuid`; fixed with `category_id: categoryId || null`
+- **Workout summary stats showing 0** — pre-created sets had `is_completed: false`; fixed by the incomplete sets prompt ensuring sets are marked complete before finishing
+
+---
+
+## [2026-02-23] - Active Workout Performance + Reorder Fix
+
+### Fixed
+- **ExerciseSearch: Reorder not applying in add-to-existing mode** — `handleAddToWorkout` now assigns `sort_order` based on each exercise's index in the full panel order; also updates `sort_order` for existing exercises via separate UPDATE calls; previously only inserted new exercises at the end using `startSortOrder + index`, ignoring panel order entirely
+- **ActiveWorkoutScreen: Input lag** — toggle set complete, add set, and delete set no longer call `loadWorkout()` (which re-fetched the full workout + fired N RPC calls for previous sets per exercise); replaced with optimistic local state updates for instant UI response
+
+### Added
+- **ActiveWorkoutScreen: Auto-complete previous set on Add Set** — when "+ Add Set" is tapped, the last set for that exercise is automatically marked as completed (if not already); fires as a fire-and-forget DB update alongside the new set insert
+
+### Changed
+- **ActiveWorkoutScreen: "+ Add Exercise" → "+ Add/Edit Exercise"**
+- **ExerciseSearch: "Add" CTA → "Save"** in add-to-existing mode (the green pill button in WorkoutHeader)
+
+---
+
+## [2026-02-22] - Bug Fix + Drag-to-Reorder Selected Exercises
+
+### Fixed
+- **ActiveWorkoutScreen: Cancel navigation** — `navigation.navigate('Home')` changed to `navigation.navigate('MainTabs')`; was throwing "action not handled" runtime error and leaving user stuck on screen after cancelling a workout
+
+### Added
+- **WorkoutHeader: Drag-to-reorder selected exercises** — each selected exercise row now shows a `reorder-three` hamburger icon on the right; touch the handle and drag up/down to reorder; order is committed on release via `onReorderItems` prop and reflected in `sort_order` when exercises are inserted into DB; implemented using RN responder system (`onStartShouldSetResponder` / `onResponderMove` / `onResponderRelease`) — no external library, no native rebuild required
+
+### In Progress
+- **WorkoutHeader: Reorder not applying in add-to-existing mode** — dragging exercises in the header panel while adding to an existing workout does not change the exercise order on the Active Workout screen after hitting "Add"; reorder works correctly in new workout flow; root cause and fix TBD next session
+
+---
+
+## [2026-02-22] - Active Workout Redesign + Exercise Search Refinements
+
+### Added
+- **ActiveWorkoutScreen: WorkoutHeader** — replaced custom header with shared `WorkoutHeader` component (matches ExerciseSearch header style: dark panel, date/name/pencil/Cancel)
+- **ActiveWorkoutScreen: Edit Title** — pencil icon in header opens rename modal; saves to `workouts.name` in DB
+- **ActiveWorkoutScreen: Trash Icon per Exercise** — top-right of each exercise card; confirms then deletes exercise + all its sets from DB
+- **ActiveWorkoutScreen: Add Exercise Button** — button below exercise list; navigates to ExerciseSearch with `existingWorkoutId` param; pre-populates all currently selected exercises; only inserts newly added exercises (no duplicates)
+- **ExerciseSearch: Add-to-Existing Mode** — triggered when `existingWorkoutId` route param is present; fetches and pre-populates current workout exercises; header button shows "Add" instead of "Start"; on confirm, inserts only new exercises and navigates back to ActiveWorkout; pre-existing exercises protected from header panel removal
+- **WorkoutHeader: `startLabel` prop** — optional override for the green button text (defaults to "Start")
+
+### Changed
+- **Stages removed from Active Workout** — exercises render as flat sorted list; removed stage headers, Add Stage button, rename/delete stage functions; DB still creates a default stage behind the scenes (FK constraint)
+- **Stages removed from Workout Summary** — exercises render flat; removed stage grouping, `StageHeader` component, `workout_stages` from query
+- **ActiveWorkoutScreen: Set table columns** — switched from fixed pixel widths to `flex` proportions (spans full card width on all device sizes)
+- **ActiveWorkoutScreen: Input performance** — reps/weight inputs now use local state; DB saves on `onBlur` only (no per-keystroke reload); new sets sync into local state without overwriting in-progress edits
+- **ExerciseSearch: Selected variation rows** — selected row in open accordion now uses `#D5D5D5` light gray pill (`borderRadius: 32, height: 56`), dark `#1B1B1B` text; was previously dark `#1B1B1B` bg
+- **ExerciseSearch: Card open state** — opening an accordion no longer shows selected equipment text in the header; in closed state with selections, each selected variation renders as its own row with × below a divider (not comma-separated text in header)
+- **ExerciseSearch: Bottom panel** — unified search + filter into a single animated bottom panel; filter icon opens panel to 78% screen height (hides search, shows category list); × closes back to collapsed search view
+- **WorkoutHeader: Selected exercise subtitle** — format changed to `equipment · muscleGroup` (e.g., "Dumbbells · Arms")
+
+---
+
+## [2026-02-22] - Exercise Search Redesign
+
+### Added
+- **WorkoutHeader: Expandable Selected Exercises Panel**
+  - Drag handle appears at bottom of header when exercises are selected
+  - Drag down to expand selected exercise list within header; drag up to collapse
+  - Each row: exercise name (bold) + muscle group + × remove button
+  - Uses `PanResponder` + `Animated.spring` for height animation
+  - Auto-collapses when all exercises are removed
+- **WorkoutHeader: Start Button**
+  - Green pill (`#2E7D32`) appears next to Cancel when exercises are selected
+  - Only rendered when `selectedExercises.length > 0`
+  - Both Start and Cancel are compact (`fontSize: 13, paddingHorizontal: 12`)
+- **WorkoutHeader: Editable Sheet Name**
+  - Pencil icon (`Ionicons name="pencil"`, size 11) renders after "Sheet" in header title
+  - Tapping opens a rename modal (dark card overlay, auto-focused input, Cancel + Save)
+  - Saved name used in workout DB record
+- **Exercise Search: Client-Side Filtering**
+  - All exercises loaded from DB; category filtering applied in-browser
+  - Active categories stored as array; empty array = show all
+  - Category match via `exercise.category_ids` overlap with active category IDs
+- **Exercise Search: Filter Category Panel**
+  - Slide-up overlay via `Animated.timing`
+  - Lists all categories with `+`/`×` toggle, subtitles from static map + DB fallback
+  - Live "X exercises Available" count
+- **Exercise Search: Selected Equipment Label**
+  - Multi-variation cards show selected variation's equipment name as third line below subtitle
+  - Visible in both collapsed and expanded states
+- **Exercise Search: Exercises Count Header**
+  - "Exercises" label + live count (reflecting active filters) below search bar
+
+### Changed
+- **WorkoutHeader title format:** Removed "New " prefix — renders as `**[name]** Sheet ✏️`
+- **WorkoutHeader layout:** Left section wraps date row + subtitle; buttons column on right
+- **ExerciseSearchScreen background:** `#1E1E1E` (was `#1A1A1A`)
+- **Exercise Search layout restructure:**
+  - "Search Exercises" bold title removed; placeholder text in input serves that purpose
+  - Search bar moved to top of exercise list (dark `#2A2A2A` bg, search icon prefix)
+  - Selected exercises section removed from main scroll — lives in WorkoutHeader panel
+  - Bottom panel now contains only filter chips + filter icon (no search bar, no Start button)
+  - Start button moved into WorkoutHeader header row
+- **Exercise card behavior:**
+  - Multi-variation card turns white when any variation is selected (was dark until expanded)
+  - Single-variation card: tapping the full row adds/removes (not just the button)
+- **Workout creation uses editable `sheetName`** (not the original `categoryName` param)
+
+### Removed
+- **Info icons** removed from all exercise cards and variation rows (deferred to Exercise Detail phase)
+- **Image placeholders** removed from exercise cards (deferred to future phase)
+
+---
+
+## [2026-02-09] - iOS Simulator Setup & Workflow Updates
+
+### Added
+- **iOS Simulator Support:** Successfully built and ran SetSheet in Xcode iOS Simulator (iPhone 16e)
+  - Used `npx expo run:ios` to generate iOS native project and build dev client
+  - Metro bundler connected to both simulator and physical device simultaneously
+
+### Changed
+- **WORKFLOW.md:** Added "Environment Setup" section for dual-device development
+  - Metro bundler starts at session beginning (after reading docs)
+  - Both iOS Simulator and physical device receive hot-reload updates from same server
+  - Session end protocol updated to kill Metro before updating docs
+
+---
+
 ## [2026-02-08] - Calendar Panel Investigation (Reverted)
 
 ### Attempted
@@ -253,7 +416,6 @@ All notable changes to SetSheet are documented in this file.
 
 | Table | Count | Notes |
 |-------|-------|-------|
-| exercises | 142 | All have descriptions |
-| exercise_variations | 376 | Avg 2.6 per exercise |
+| exercises | 151 | Equipment stored as `text[]` on each row |
 | categories | 20 | 4 category groups |
 | profiles | 2 | Test accounts |

@@ -9,6 +9,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Share,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -16,6 +17,7 @@ import { format } from 'date-fns';
 import { RootStackParamList } from '../types';
 import { parseTemplate, validateTemplate } from '../utils/templateParser';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 type UploadTemplateScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -26,21 +28,63 @@ type UploadTemplateScreenRouteProp = RouteProp<RootStackParamList, 'UploadTempla
 export default function UploadTemplateScreen() {
   const navigation = useNavigation<UploadTemplateScreenNavigationProp>();
   const route = useRoute<UploadTemplateScreenRouteProp>();
+  const { session } = useAuth();
   // Default to today if accessed from tab (no params)
   const date = route.params?.date ?? format(new Date(), 'yyyy-MM-dd');
 
   const [templateText, setTemplateText] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const exampleTemplate = `Pull Day
-[Compound Movements]
-Barbell Row 4x8-10
-Pull-ups 3x8-12
-Deadlift 3x5
+  const copyPromptText = `Use this template:
 
-[Accessories]
-Dumbbell Curl 3x10-12
-Face Pulls 3x15-20`;
+[Workout Name]
+- Exercise Name (Equipment) SetsxReps
+- Exercise Name (Equipment) SetsxReps`;
+
+  const handleCopyTemplate = async () => {
+    await Share.share({ message: copyPromptText });
+  };
+
+  const goToExerciseSearch = async (parsedTemplate: any) => {
+    try {
+      const exerciseNames = parsedTemplate.exercises.map((ex: any) => ex.name);
+      const { data: exercises } = await supabase
+        .from('exercises')
+        .select('*')
+        .in('name', exerciseNames);
+      const exerciseMap: any = {};
+      exercises?.forEach((ex: any) => { exerciseMap[ex.name] = ex; });
+
+      const preSelected = parsedTemplate.exercises
+        .map((ex: any) => {
+          const info = exerciseMap[ex.name];
+          if (!info) return null;
+          const availableEquipment: string[] = info.equipment ?? [];
+          const equipment = ex.equipment
+            ? availableEquipment.find((eq: string) => eq.toLowerCase() === ex.equipment.toLowerCase())
+              ?? availableEquipment[0]
+            : availableEquipment[0];
+          return {
+            exerciseId: info.id,
+            exerciseName: info.name,
+            equipment: equipment ?? '',
+            muscleGroup: info.muscle_group,
+            proposedSets: ex.sets,
+            proposedRepsMin: ex.repsMin,
+          };
+        })
+        .filter(Boolean);
+
+      navigation.navigate('ExerciseSearch', {
+        categoryId: '',
+        categoryName: parsedTemplate.category,
+        date,
+        preSelectedExercises: preSelected,
+      });
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to load exercises');
+    }
+  };
 
   const handleParseTemplate = async () => {
     if (!templateText.trim()) {
@@ -50,35 +94,41 @@ Face Pulls 3x15-20`;
 
     setLoading(true);
     try {
-      // Parse the template
       const parsed = parseTemplate(templateText);
-
-      // Validate against database
       const validation = await validateTemplate(parsed, supabase);
 
       if (!validation.valid) {
+        const missingList = validation.missingExercises.join('\n');
         Alert.alert(
-          'Invalid Exercises',
-          `The following exercises were not found in the database:\n\n${validation.missingExercises.join(
-            '\n'
-          )}\n\nPlease check the spelling or use different exercises.`
+          'Some Exercises Not Found',
+          `These exercises weren't recognized:\n\n${missingList}\n\nContinue without them?`,
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => setLoading(false) },
+            {
+              text: 'Continue',
+              onPress: async () => {
+                const filtered = {
+                  ...parsed,
+                  exercises: parsed.exercises.filter(
+                    (ex: any) => !validation.missingExercises.includes(ex.name)
+                  ),
+                };
+                await goToExerciseSearch(filtered);
+                setLoading(false);
+              },
+            },
+          ]
         );
-        setLoading(false);
         return;
       }
 
-      // Navigate to preview
-      navigation.navigate('TemplatePreview', { parsedTemplate: parsed, date });
+      await goToExerciseSearch(parsed);
     } catch (error) {
       Alert.alert('Parse Error', 'Failed to parse template. Please check the format.');
       console.error(error);
     } finally {
       setLoading(false);
     }
-  };
-
-  const loadExample = () => {
-    setTemplateText(exampleTemplate);
   };
 
   return (
@@ -92,19 +142,18 @@ Face Pulls 3x15-20`;
           <View style={{ width: 60 }} />
         )}
         <Text style={styles.headerTitle}>Upload Template</Text>
-        <TouchableOpacity onPress={loadExample}>
-          <Text style={styles.exampleButton}>Example</Text>
-        </TouchableOpacity>
+        <View style={{ width: 60 }} />
       </View>
 
       <ScrollView style={styles.content} keyboardDismissMode="interactive">
         <View style={styles.instructions}>
           <Text style={styles.instructionsTitle}>Template Format:</Text>
           <Text style={styles.instructionsText}>
-            Line 1: Category name (e.g., "Pull Day"){'\n'}
-            [Stage Name] - Optional section headers{'\n'}
-            Exercise Name SetsxReps (e.g., "Bench Press 4x8-10")
+            {'Pull Day\n- Barbell Row (Barbell) 4x8-10\n- Lat Pulldown (Cable) 3x10-12'}
           </Text>
+          <TouchableOpacity style={styles.copyButton} onPress={handleCopyTemplate}>
+            <Text style={styles.copyButtonText}>Copy Template</Text>
+          </TouchableOpacity>
         </View>
 
         <TextInput
@@ -125,7 +174,7 @@ Face Pulls 3x15-20`;
           {loading ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.parseButtonText}>Parse Template</Text>
+            <Text style={styles.parseButtonText}>Upload</Text>
           )}
         </TouchableOpacity>
       </ScrollView>
@@ -182,7 +231,21 @@ const styles = StyleSheet.create({
   instructionsText: {
     fontSize: 14,
     color: '#AAAAAA',
-    lineHeight: 20,
+    lineHeight: 22,
+    fontFamily: 'Courier',
+    marginBottom: 14,
+  },
+  copyButton: {
+    backgroundColor: '#333333',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  copyButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
   },
   input: {
     backgroundColor: '#252525',

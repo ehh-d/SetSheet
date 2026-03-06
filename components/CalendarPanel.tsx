@@ -15,6 +15,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 interface CalendarPanelProps {
   onDateSelect?: (date: Date) => void;
   focusDate?: Date;
+  refreshKey?: number;
 }
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -39,7 +40,7 @@ export function getCollapsedHeight(insetsTop: number): number {
   return safeAreaTop(insetsTop) + DRAWER_TOP_PADDING + ROW_HEIGHT + HANDLE_HEIGHT;
 }
 
-export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
+export function CalendarPanel({ onDateSelect, focusDate, refreshKey }: CalendarPanelProps) {
   const navigation = useNavigation<NavigationProp>();
   const sheetRef = useRef<TopSheetScrollViewRef>(null);
   const insets = useSafeAreaInsets();
@@ -78,6 +79,7 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
     checkLazyLoadTrigger,
     prependedCount,
     clearPrependedCount,
+    refreshData,
   } = useCalendarDates({
     initialWeeks: 13,
     lazyLoadWeeks: 4,
@@ -92,6 +94,12 @@ export function CalendarPanel({ onDateSelect, focusDate }: CalendarPanelProps) {
   useEffect(() => {
     focusDateRef.current = focusDate;
   }, [focusDate]);
+
+  useEffect(() => {
+    if (refreshKey !== undefined && refreshKey > 0) {
+      refreshData();
+    }
+  }, [refreshKey]);
 
   // Calculate month blocks - each month has a start index, end index, and label
   const monthBlocks = useMemo(() => {

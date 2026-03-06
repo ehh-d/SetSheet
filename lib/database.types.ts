@@ -38,41 +38,13 @@ export type Database = {
         }
         Relationships: []
       }
-      exercise_variations: {
-        Row: {
-          created_at: string | null
-          equipment: string
-          exercise_id: string
-          id: string
-        }
-        Insert: {
-          created_at?: string | null
-          equipment: string
-          exercise_id: string
-          id?: string
-        }
-        Update: {
-          created_at?: string | null
-          equipment?: string
-          exercise_id?: string
-          id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "exercise_variations_exercise_id_fkey"
-            columns: ["exercise_id"]
-            isOneToOne: false
-            referencedRelation: "exercises"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       exercises: {
         Row: {
           category_ids: string[] | null
           created_at: string | null
           created_by: string | null
           description: string | null
+          equipment: string[] | null
           id: string
           muscle_group: string
           name: string
@@ -84,6 +56,7 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           description?: string | null
+          equipment?: string[] | null
           id?: string
           muscle_group: string
           name: string
@@ -95,6 +68,7 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           description?: string | null
+          equipment?: string[] | null
           id?: string
           muscle_group?: string
           name?: string
@@ -240,7 +214,8 @@ export type Database = {
       workout_exercises: {
         Row: {
           created_at: string | null
-          exercise_variation_id: string
+          equipment: string | null
+          exercise_id: string
           id: string
           proposed_reps_max: number | null
           proposed_reps_min: number | null
@@ -252,7 +227,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
-          exercise_variation_id: string
+          equipment?: string | null
+          exercise_id: string
           id?: string
           proposed_reps_max?: number | null
           proposed_reps_min?: number | null
@@ -264,7 +240,8 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
-          exercise_variation_id?: string
+          equipment?: string | null
+          exercise_id?: string
           id?: string
           proposed_reps_max?: number | null
           proposed_reps_min?: number | null
@@ -276,10 +253,10 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "workout_exercises_exercise_variation_id_fkey"
-            columns: ["exercise_variation_id"]
+            foreignKeyName: "workout_exercises_exercise_id_fkey"
+            columns: ["exercise_id"]
             isOneToOne: false
-            referencedRelation: "exercise_variations"
+            referencedRelation: "exercises"
             referencedColumns: ["id"]
           },
           {

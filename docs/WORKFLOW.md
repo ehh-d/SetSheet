@@ -31,6 +31,23 @@ This happens **once at session start**, not before every edit.
 
 ---
 
+## Environment Setup (Session Start)
+
+**Purpose:** Run Metro bundler to enable simultaneous development on iOS Simulator and physical device. Both receive hot-reload updates from same Metro server.
+
+After reading docs, run:
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+npx expo start --dev-client
+```
+
+Press `i` to launch iOS Simulator. Physical device auto-connects if previously paired.
+
+Do not restart Metro during session unless prompted.
+
+---
+
 ## During Development
 
 ### While Coding
@@ -53,7 +70,7 @@ Documentation updates happen **only at session end**.
 
 When Eddie says "end session" (or similar), Claude Code should:
 
-1. **Stop running processes** — Kill Metro bundler, Expo, and any test environments
+1. **Stop running processes** — Kill Metro bundler (Ctrl+C), confirm Expo terminated
 2. **Summarize changes** — Brief list of what was accomplished
 3. **Update CHANGELOG.md** — Add entries for changes made this session
 4. **Update FEATURE_SPEC.md** (if applicable — see below)
@@ -227,6 +244,8 @@ Do NOT include:
 | 4 bottom nav items | Current design |
 | List view only (no grid) | Simplified calendar |
 | EAS Update to `preview` channel | Matches side-loaded build |
+| Expo dev client | Physical device and simulator connect to same Metro server |
+| DEVELOPER_DIR env var | Required for Xcode/Simulator without admin access |
 
 ---
 

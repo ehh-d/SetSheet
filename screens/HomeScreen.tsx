@@ -13,14 +13,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Workout, WorkoutExerciseWithDetails, WorkoutStage } from '../types';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../types';
+import { RootStackParamList, MainTabParamList } from '../types';
 import { CalendarPanel, getCollapsedHeight } from '../components/CalendarPanel';
 import { calculateVolume } from '../utils/calculations';
 import { StatRow } from '../components/stats/StatRow';
-import { StageHeader } from '../components/timeline/StageHeader';
 import { ExerciseSummaryCard } from '../components/exercise/ExerciseSummaryCard';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
@@ -30,13 +29,14 @@ interface WorkoutWithDetails extends Workout {
   workout_exercises?: WorkoutExerciseWithDetails[];
 }
 
-interface StageGroup {
-  stage: WorkoutStage | null;
-  exercises: WorkoutExerciseWithDetails[];
-}
 
 export default function HomeScreen() {
-  const [focusDate, setFocusDate] = useState(new Date());
+  const route = useRoute<RouteProp<MainTabParamList, 'Home'>>();
+  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
+  const [focusDate, setFocusDate] = useState(() => {
+    const dateStr = route.params?.initialFocusDate;
+    return dateStr ? parseISO(dateStr) : new Date();
+  });
   const [sheet, setSheet] = useState<WorkoutWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const { session } = useAuth();
@@ -78,17 +78,14 @@ export default function HomeScreen() {
           ),
           workout_exercises (
             id,
-            exercise_variation_id,
+            exercise_id,
+            equipment,
             sort_order,
             stage_id,
-            exercise_variations (
+            exercises (
               id,
-              equipment,
-              exercises (
-                id,
-                name,
-                muscle_group
-              )
+              name,
+              muscle_group
             ),
             sets (
               id,
@@ -126,6 +123,7 @@ export default function HomeScreen() {
   };
 
   const isPastDate = !isSameDay(focusDate, new Date()) && focusDate < new Date();
+  const isToday = isSameDay(focusDate, new Date());
 
   // Duplicate the current sheet's exercises onto today
   const handleDuplicateSheet = async () => {
@@ -185,7 +183,8 @@ export default function HomeScreen() {
       const exerciseInserts = sheet.workout_exercises.map((ex) => ({
         workout_id: newWorkout.id,
         stage_id: ex.stage_id ? stageIdMap[ex.stage_id] : null,
-        exercise_variation_id: ex.exercise_variation_id,
+        exercise_id: ex.exercise_id,
+        equipment: ex.equipment,
         sort_order: ex.sort_order,
         proposed_sets: 3,
         proposed_reps_min: 8,
@@ -204,12 +203,51 @@ export default function HomeScreen() {
     }
   };
 
+  const handleDeleteWorkout = async () => {
+    if (!sheet) return;
+    Alert.alert(
+      'Delete Workout',
+      'This will permanently remove this workout from your history.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const exerciseIds = sheet.workout_exercises?.map(ex => ex.id) ?? [];
+              if (exerciseIds.length > 0) {
+                await supabase.from('sets').delete().in('workout_exercise_id', exerciseIds);
+                await supabase.from('workout_exercises').delete().eq('workout_id', sheet.id);
+              }
+              await supabase.from('workout_stages').delete().eq('workout_id', sheet.id);
+              await supabase.from('workouts').delete().eq('id', sheet.id);
+              setSheet(null);
+              setCalendarRefreshKey(k => k + 1);
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Failed to delete workout');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleEditWorkout = async () => {
+    if (!sheet) return;
+    try {
+      await supabase.from('workouts').update({ status: 'active' } as any).eq('id', sheet.id);
+      navigation.navigate('ActiveWorkout', { workoutId: sheet.id });
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to reopen workout');
+    }
+  };
+
   // Render completed workout summary
   const renderCompletedWorkout = () => {
     if (!sheet || !sheet.workout_exercises) return null;
 
     const exercises = sheet.workout_exercises;
-    const stages = sheet.workout_stages || [];
 
     // Calculate stats
     const totalExercises = exercises.length;
@@ -229,30 +267,9 @@ export default function HomeScreen() {
       return sum + exerciseVolume;
     }, 0);
 
-    // Group exercises by stage
-    const stageGroups: StageGroup[] = [];
-    const sortedStages = [...stages].sort(
+    const sortedExercises = [...exercises].sort(
       (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
     );
-
-    sortedStages.forEach(stage => {
-      const stageExercises = exercises
-        .filter(ex => ex.stage_id === stage.id)
-        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-
-      if (stageExercises.length > 0) {
-        stageGroups.push({ stage, exercises: stageExercises });
-      }
-    });
-
-    // Add exercises without a stage
-    const unstaged = exercises
-      .filter(ex => !ex.stage_id)
-      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-
-    if (unstaged.length > 0) {
-      stageGroups.push({ stage: null, exercises: unstaged });
-    }
 
     const workoutDate = parseISO(sheet.workout_date);
     const dateBase = format(workoutDate, 'MMMM d');
@@ -266,24 +283,32 @@ export default function HomeScreen() {
       >
         {/* Header */}
         <View style={styles.summaryHeader}>
-          <View style={styles.dateTitleRow}>
-            <View style={styles.dateTitleGroup}>
-              <Text style={styles.dateTitle}>{dateBase}</Text>
-              <Text style={styles.dateSuffix}>{daySuffix}</Text>
+          <View style={styles.headerTitleRow}>
+            <View style={styles.headerTitleGroup}>
+              <Text style={styles.workoutTitle}>{sheet.name || 'Workout'}</Text>
+              {isToday && <Text style={styles.todayIndicator}>Today</Text>}
+              <View style={styles.dateTitleGroup}>
+                <Text style={styles.dateTitle}>{dateBase}</Text>
+                <Text style={styles.dateSuffix}>{daySuffix}</Text>
+              </View>
             </View>
-            <TouchableOpacity style={styles.editButton}>
-              <Ionicons name="pencil" size={24} color="#757575" />
-            </TouchableOpacity>
+            <View style={styles.headerActions}>
+              <TouchableOpacity style={styles.actionButton} onPress={handleEditWorkout}>
+                <Ionicons name="create-outline" size={22} color="#757575" />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton} onPress={handleDeleteWorkout}>
+                <Ionicons name="trash-outline" size={22} color="#757575" />
+              </TouchableOpacity>
+            </View>
           </View>
-          <Text style={styles.workoutSubtitle}>{sheet.name || 'Workout'}</Text>
         </View>
 
-        {/* Exercises Summary header */}
+        {/* Workout Summary header */}
         <View style={styles.exercisesSummaryHeader}>
-          <Text style={styles.exercisesSummaryTitle}>Exercises Summary</Text>
+          <Text style={styles.exercisesSummaryTitle}>Workout Summary</Text>
         </View>
 
-        {/* Stats and Notes */}
+        {/* Stats */}
         <View style={styles.statsSection}>
           <StatRow label="Exercises" value={totalExercises} />
           <StatRow label="Total Sets" value={totalSets} />
@@ -295,31 +320,15 @@ export default function HomeScreen() {
               <View style={styles.notesLabelRow}>
                 <Text style={styles.notesLabel}>Workout Notes:</Text>
               </View>
-              <View style={styles.notesContentRow}>
-                <Text style={styles.notesText}>{sheet.notes}</Text>
-                <TouchableOpacity style={styles.editButton}>
-                  <Ionicons name="pencil" size={24} color="#757575" />
-                </TouchableOpacity>
-              </View>
+              <Text style={styles.notesText}>{sheet.notes}</Text>
             </>
           )}
         </View>
 
-        {/* Exercise List by Stage */}
+        {/* Exercise List */}
         <View style={styles.exercisesSection}>
-          {stageGroups.map((group) => (
-            <View key={group.stage?.id || 'unstaged'}>
-              {group.stage && (
-                <StageHeader title={group.stage.name || 'Stage'} />
-              )}
-
-              {group.exercises.map((exercise) => (
-                <ExerciseSummaryCard
-                  key={exercise.id}
-                  exercise={exercise}
-                />
-              ))}
-            </View>
+          {sortedExercises.map((exercise) => (
+            <ExerciseSummaryCard key={exercise.id} exercise={exercise} />
           ))}
         </View>
 
@@ -336,7 +345,6 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Bottom padding */}
         <View style={styles.bottomPadding} />
       </ScrollView>
     );
@@ -345,7 +353,7 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       {/* Calendar Panel */}
-      <CalendarPanel onDateSelect={handleDateSelect} focusDate={focusDate} />
+      <CalendarPanel onDateSelect={handleDateSelect} focusDate={focusDate} refreshKey={calendarRefreshKey} />
 
       {/* Sheet View Content */}
       <View style={styles.content}>
@@ -360,6 +368,7 @@ export default function HomeScreen() {
               <Text style={styles.sheetName}>
                 {sheet.name || 'Workout in Progress'}
               </Text>
+              {isToday && <Text style={styles.todayIndicator}>Today</Text>}
               <Text style={styles.sheetDate}>
                 {format(focusDate, 'MMMM d, yyyy')}
               </Text>
@@ -373,6 +382,7 @@ export default function HomeScreen() {
           )
         ) : (
           <View style={styles.noSheet}>
+            {isToday && <Text style={styles.todayIndicator}>Today</Text>}
             <Text style={styles.noSheetDate}>
               {format(focusDate, 'MMMM d, yyyy')}
             </Text>
@@ -466,35 +476,52 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 8,
   },
-  dateTitleRow: {
+  headerTitleRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  headerTitleGroup: {
+    flex: 1,
+    gap: 4,
+  },
+  workoutTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    lineHeight: 30,
   },
   dateTitleGroup: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
   dateTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    lineHeight: 32,
-  },
-  dateSuffix: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginTop: 4,
-  },
-  editButton: {
-    padding: 4,
-  },
-  workoutSubtitle: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#C8C8C8',
+    color: '#757575',
+    lineHeight: 20,
+  },
+  dateSuffix: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#757575',
+    marginTop: 2,
+  },
+  todayIndicator: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#757575',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 4,
+    marginLeft: 8,
+  },
+  actionButton: {
+    padding: 6,
   },
   exercisesSummaryHeader: {
     padding: 16,
@@ -516,12 +543,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#D5D5D5',
     lineHeight: 20,
-  },
-  notesContentRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingLeft: 8,
-    paddingBottom: 16,
   },
   notesText: {
     flex: 1,

@@ -14,7 +14,6 @@ import HomeScreen from './screens/HomeScreen';
 import CategorySelectionScreen from './screens/CategorySelectionScreen';
 import ExerciseSearchScreen from './screens/ExerciseSearchScreen';
 import ActiveWorkoutScreen from './screens/ActiveWorkoutScreen';
-import WorkoutSummaryScreen from './screens/WorkoutSummaryScreen';
 import UploadTemplateScreen from './screens/UploadTemplateScreen';
 import TemplatePreviewScreen from './screens/TemplatePreviewScreen';
 import ExerciseLibraryScreen from './screens/ExerciseLibraryScreen';
@@ -111,7 +110,6 @@ function Navigation() {
           <Stack.Screen name="CategorySelection" component={CategorySelectionScreen} />
           <Stack.Screen name="ExerciseSearch" component={ExerciseSearchScreen} />
           <Stack.Screen name="ActiveWorkout" component={ActiveWorkoutScreen} />
-          <Stack.Screen name="WorkoutSummary" component={WorkoutSummaryScreen} />
           <Stack.Screen name="UploadTemplate" component={UploadTemplateScreen} />
           <Stack.Screen name="TemplatePreview" component={TemplatePreviewScreen} />
         </Stack.Navigator>

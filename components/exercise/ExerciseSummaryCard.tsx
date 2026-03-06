@@ -12,8 +12,8 @@ export function ExerciseSummaryCard({ exercise }: ExerciseSummaryCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const completedSets = exercise.sets.filter((s) => s.is_completed);
-  const exerciseName = exercise.exercise_variations.exercises.name;
-  const muscleGroup = exercise.exercise_variations.exercises.muscle_group;
+  const exerciseName = exercise.exercises.name;
+  const muscleGroup = exercise.exercises.muscle_group;
 
   // Calculate total volume
   const totalVolume = calculateVolume(
@@ -29,11 +29,6 @@ export function ExerciseSummaryCard({ exercise }: ExerciseSummaryCardProps) {
 
   return (
     <View style={styles.wrapper}>
-      {/* Continuous sidebar line */}
-      <View style={styles.sidebar}>
-        <View style={styles.sidebarLine} />
-      </View>
-
       {/* Card */}
       <View style={styles.cardParent}>
         <View style={[styles.card, expanded ? styles.cardExpanded : styles.cardCollapsed]}>
@@ -115,18 +110,7 @@ export function ExerciseSummaryCard({ exercise }: ExerciseSummaryCardProps) {
 
 const styles = StyleSheet.create({
   wrapper: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: 8,
-  },
-  sidebar: {
-    width: 8,
-    alignItems: 'center',
-  },
-  sidebarLine: {
-    width: 2,
     flex: 1,
-    backgroundColor: '#757575',
   },
   cardParent: {
     flex: 1,

@@ -36,15 +36,11 @@ export default function TemplatePreviewScreen() {
   }, []);
 
   const loadExerciseData = async () => {
-    // Get all exercise names from the template
-    const exerciseNames = parsedTemplate.stages.flatMap((stage: any) =>
-      stage.exercises.map((ex: any) => ex.name)
-    );
+    const exerciseNames = parsedTemplate.exercises.map((ex: any) => ex.name);
 
-    // Fetch exercise and variation data
     const { data: exercises } = await supabase
       .from('exercises')
-      .select('*, exercise_variations(*)')
+      .select('*')
       .in('name', exerciseNames);
 
     const dataMap: any = {};
@@ -59,24 +55,15 @@ export default function TemplatePreviewScreen() {
     try {
       // 1. Find or create category
       const categoryName = parsedTemplate.category;
-      let categoryId: string;
+      let categoryId: string | null;
 
       const { data: existingCategory } = await supabase
         .from('categories')
         .select('id')
-        .eq('name', categoryName)
-        .single();
+        .ilike('name', categoryName)
+        .maybeSingle();
 
-      if (existingCategory) {
-        categoryId = existingCategory.id;
-      } else {
-        const { data: newCategory } = await supabase
-          .from('categories')
-          .insert({ name: categoryName, description: `Created from template` })
-          .select('id')
-          .single();
-        categoryId = newCategory.id;
-      }
+      categoryId = existingCategory?.id ?? null;
 
       // 2. Create workout
       const { data: workout, error: workoutError } = await supabase
@@ -85,74 +72,63 @@ export default function TemplatePreviewScreen() {
           user_id: session?.user.id,
           category_id: categoryId,
           workout_date: date,
+          name: categoryName,
           status: 'active',
-          started_at: new Date().toISOString(),
         })
         .select('id')
         .single();
 
       if (workoutError) throw workoutError;
+      if (!workout) throw new Error('Failed to create workout');
 
-      // 3. Create stages and exercises
-      let stageOrderIndex = 0;
-      for (const stage of parsedTemplate.stages) {
-        // Create stage
-        const { data: workoutStage } = await supabase
-          .from('workout_stages')
-          .insert({
-            workout_id: workout.id,
-            name: stage.name,
-            order_index: stageOrderIndex++,
-          })
-          .select('id')
-          .single();
+      // 3. Create a default stage (required for FK constraints)
+      const { data: workoutStage, error: stageError } = await supabase
+        .from('workout_stages')
+        .insert({
+          workout_id: workout.id,
+          name: 'General Workout',
+          sort_order: 0,
+        })
+        .select('id')
+        .single();
 
-        // Create exercises for this stage
-        let exerciseOrderIndex = 0;
-        for (const exercise of stage.exercises) {
-          const exerciseInfo = exerciseData[exercise.name];
+      if (stageError) throw stageError;
+      if (!workoutStage) throw new Error('Failed to create workout stage');
 
-          // Use the first available variation (or default to first)
-          const variationId = exerciseInfo?.exercise_variations?.[0]?.id;
+      // 4. Insert exercises
+      for (let i = 0; i < parsedTemplate.exercises.length; i++) {
+        const exercise = parsedTemplate.exercises[i];
+        const exerciseInfo = exerciseData[exercise.name];
+        const availableEquipment: string[] = exerciseInfo?.equipment ?? [];
 
-          if (!variationId) {
-            console.warn(`No variation found for ${exercise.name}`);
-            continue;
-          }
+        // Match by equipment name if specified, otherwise use first available
+        const resolvedEquipment = exercise.equipment
+          ? availableEquipment.find((eq: string) => eq.toLowerCase() === exercise.equipment.toLowerCase())
+            ?? availableEquipment[0]
+          : availableEquipment[0];
 
-          // Create workout exercise
-          const { data: workoutExercise } = await supabase
-            .from('workout_exercises')
-            .insert({
-              workout_id: workout.id,
-              stage_id: workoutStage.id,
-              exercise_variation_id: variationId,
-              order_index: exerciseOrderIndex++,
-              target_sets: exercise.sets,
-              target_reps_min: exercise.repsMin,
-              target_reps_max: exercise.repsMax,
-            })
-            .select('id')
-            .single();
-
-          // Create placeholder sets
-          for (let i = 0; i < exercise.sets; i++) {
-            await supabase.from('sets').insert({
-              workout_exercise_id: workoutExercise.id,
-              set_number: i + 1,
-              reps: null,
-              weight: null,
-              completed: false,
-            });
-          }
+        if (!exerciseInfo) {
+          console.warn(`No exercise found for ${exercise.name}`);
+          continue;
         }
+
+        await supabase.from('workout_exercises').insert({
+          workout_id: workout.id,
+          stage_id: workoutStage.id,
+          exercise_id: exerciseInfo.id,
+          equipment: resolvedEquipment ?? null,
+          sort_order: i,
+          proposed_sets: exercise.sets,
+          proposed_reps_min: exercise.repsMin,
+          proposed_reps_max: exercise.repsMax,
+        });
       }
 
-      // 4. Navigate to active workout
+      // 5. Navigate to active workout
       navigation.reset({
         index: 1,
         routes: [
-          { name: 'Home' },
+          { name: 'MainTabs' },
           { name: 'ActiveWorkout', params: { workoutId: workout.id } },
         ],
       });
@@ -164,14 +140,8 @@ export default function TemplatePreviewScreen() {
     }
   };
 
-  const totalExercises = parsedTemplate.stages.reduce(
-    (sum: number, stage: any) => sum + stage.exercises.length,
-    0
-  );
-
-  const totalSets = parsedTemplate.stages.reduce(
-    (sum: number, stage: any) =>
-      sum + stage.exercises.reduce((s: number, ex: any) => s + ex.sets, 0),
+  const totalSets = parsedTemplate.exercises.reduce(
+    (sum: number, ex: any) => sum + ex.sets,
     0
   );
 
@@ -190,11 +160,7 @@ export default function TemplatePreviewScreen() {
           <Text style={styles.categoryName}>{parsedTemplate.category}</Text>
           <View style={styles.stats}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{parsedTemplate.stages.length}</Text>
-              <Text style={styles.statLabel}>Stages</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{totalExercises}</Text>
+              <Text style={styles.statValue}>{parsedTemplate.exercises.length}</Text>
               <Text style={styles.statLabel}>Exercises</Text>
             </View>
             <View style={styles.statItem}>
@@ -204,30 +170,27 @@ export default function TemplatePreviewScreen() {
           </View>
         </View>
 
-        {parsedTemplate.stages.map((stage: any, stageIndex: number) => (
-          <View key={stageIndex} style={styles.stageCard}>
-            <Text style={styles.stageName}>{stage.name}</Text>
-            {stage.exercises.map((exercise: any, exIndex: number) => {
-              const hasVariation = exerciseData[exercise.name];
-              const equipment = hasVariation?.exercise_variations?.[0]?.equipment;
-
-              return (
-                <View key={exIndex} style={styles.exerciseRow}>
-                  <View style={styles.exerciseInfo}>
-                    <Text style={styles.exerciseName}>{exercise.name}</Text>
-                    {equipment && (
-                      <Text style={styles.equipment}>{equipment}</Text>
-                    )}
-                  </View>
-                  <Text style={styles.sets}>
-                    {exercise.sets}×{exercise.repsMin}
-                    {exercise.repsMax ? `-${exercise.repsMax}` : ''}
-                  </Text>
+        <View style={styles.exerciseList}>
+          {parsedTemplate.exercises.map((exercise: any, index: number) => {
+            const availableEquipment: string[] = exerciseData[exercise.name]?.equipment ?? [];
+            const equipment = exercise.equipment
+              ? availableEquipment.find((eq: string) => eq.toLowerCase() === exercise.equipment.toLowerCase())
+                ?? availableEquipment[0]
+              : availableEquipment[0];
+            return (
+              <View key={index} style={styles.exerciseRow}>
+                <View style={styles.exerciseInfo}>
+                  <Text style={styles.exerciseName}>{exercise.name}</Text>
+                  {equipment && <Text style={styles.equipment}>{equipment}</Text>}
                 </View>
-              );
-            })}
-          </View>
-        ))}
+                <Text style={styles.sets}>
+                  {exercise.sets}×{exercise.repsMin}
+                  {exercise.repsMax ? `-${exercise.repsMax}` : ''}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
       </ScrollView>
 
       <View style={styles.footer}>
@@ -305,26 +268,18 @@ const styles = StyleSheet.create({
     color: '#888888',
     marginTop: 4,
   },
-  stageCard: {
+  exerciseList: {
     backgroundColor: '#252525',
-    padding: 16,
     borderRadius: 12,
-    marginBottom: 16,
-  },
-  stageName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginBottom: 12,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333333',
+    paddingHorizontal: 16,
   },
   exerciseRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333333',
   },
   exerciseInfo: {
     flex: 1,
