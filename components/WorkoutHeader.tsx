@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+
+export interface WorkoutHeaderHandle {
+  collapse: () => void;
+}
 
 export interface HeaderSelectedItem {
   variationId: string;
@@ -43,7 +47,7 @@ function getOrdinalSuffix(day: number): string {
 
 const ITEM_ROW_HEIGHT = 48;
 
-export function WorkoutHeader({
+export const WorkoutHeader = forwardRef<WorkoutHeaderHandle, WorkoutHeaderProps>(function WorkoutHeader({
   date,
   ordinalDay,
   sheetName = 'New Sheet',
@@ -56,7 +60,7 @@ export function WorkoutHeader({
   selectedItems,
   onRemoveItem,
   onReorderItems,
-}: WorkoutHeaderProps) {
+}: WorkoutHeaderProps, ref) {
   const insets = useSafeAreaInsets();
   const suffix = getOrdinalSuffix(ordinalDay);
 
@@ -96,6 +100,13 @@ export function WorkoutHeader({
       }).start();
     }
   }, [selectedItems?.length]);
+
+  useImperativeHandle(ref, () => ({
+    collapse: () => {
+      isExpandedRef.current = false;
+      Animated.timing(listHeightAnim, { toValue: 0, duration: 200, useNativeDriver: false }).start();
+    },
+  }));
 
   const panResponder = useRef(
     PanResponder.create({
@@ -197,7 +208,6 @@ export function WorkoutHeader({
               {workoutName ? (
                 <View style={styles.nameRow}>
                   <Text style={styles.workoutNameBold}>{workoutName}</Text>
-                  <Text style={styles.sheetNameLight}> Sheet</Text>
                   {onEditName && (
                     <TouchableOpacity
                       onPress={onEditName}
@@ -217,14 +227,14 @@ export function WorkoutHeader({
         </View>
 
         <View style={styles.buttonsRow}>
+          <TouchableOpacity style={styles.cancelPill} onPress={onCancel} activeOpacity={0.8}>
+            <Text style={styles.cancelText}>Cancel</Text>
+          </TouchableOpacity>
           {onStart && (
             <TouchableOpacity style={styles.startPill} onPress={onStart} activeOpacity={0.8}>
               <Text style={styles.startText}>{startLabel}</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity style={styles.cancelPill} onPress={onCancel} activeOpacity={0.8}>
-            <Text style={styles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -271,7 +281,7 @@ export function WorkoutHeader({
       )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   panel: {
@@ -354,6 +364,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginLeft: 12,
+    gap: 8,
   },
   startPill: {
     backgroundColor: '#2E7D32',

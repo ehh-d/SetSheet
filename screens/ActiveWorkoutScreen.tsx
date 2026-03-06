@@ -338,17 +338,18 @@ export default function ActiveWorkoutScreen() {
       } as any)
       .eq('id', workoutId);
 
-    if (!error) {
-      navigation.reset({
-        index: 0,
-        routes: [{
-          name: 'MainTabs',
-          params: { screen: 'Home', params: { initialFocusDate: workout?.workout_date } },
-        }],
-      });
-    } else {
+    if (error) {
       Alert.alert('Error', error.message);
+      return;
     }
+
+    navigation.reset({
+      index: 0,
+      routes: [{
+        name: 'MainTabs',
+        params: { screen: 'Home', params: { initialFocusDate: workout?.workout_date } },
+      }],
+    });
   };
 
   const handleCompleteWorkout = async () => {
@@ -372,7 +373,15 @@ export default function ActiveWorkoutScreen() {
         [
           {
             text: 'No',
-            onPress: completeWorkout,
+            onPress: async () => {
+              // Delete incomplete sets before completing
+              await Promise.all(
+                incompleteSets.map(s =>
+                  supabase.from('sets').delete().eq('id', s.id)
+                )
+              );
+              await completeWorkout();
+            },
           },
           {
             text: 'Yes',
@@ -467,7 +476,6 @@ export default function ActiveWorkoutScreen() {
             {/* Set Table Header */}
             <View style={styles.tableHeader}>
               <Text style={[styles.tableHeaderText, styles.setNumCol]}>Set</Text>
-              <Text style={[styles.tableHeaderText, styles.prevCol]}>Previous</Text>
               <Text style={[styles.tableHeaderText, styles.repsCol]}>Reps</Text>
               <Text style={[styles.tableHeaderText, styles.weightCol]}>Lbs</Text>
               <Text style={[styles.tableHeaderText, styles.checkCol]}>✓</Text>
@@ -477,13 +485,6 @@ export default function ActiveWorkoutScreen() {
             {exercise.sets
               .sort((a, b) => a.set_number - b.set_number)
               .map(set => {
-                const previousSet = exercise.previousSets?.find(
-                  ps => ps.set_number === set.set_number
-                );
-                const previousText = previousSet
-                  ? `${previousSet.reps} x ${previousSet.weight} lbs`
-                  : '-';
-
                 return (
                   <Swipeable
                     key={set.id}
@@ -496,9 +497,6 @@ export default function ActiveWorkoutScreen() {
                     <View style={styles.setRow}>
                       <Text style={[styles.setNumber, styles.setNumCol]}>
                         {set.set_number}
-                      </Text>
-                      <Text style={[styles.previousValue, styles.prevCol]}>
-                        {previousText}
                       </Text>
                       <TextInput
                         style={[styles.input, styles.repsCol]}
@@ -541,13 +539,27 @@ export default function ActiveWorkoutScreen() {
                 );
               })}
 
-            {/* Add Set Button */}
-            <TouchableOpacity
-              style={styles.addSetButton}
-              onPress={() => handleAddSet(exercise.id)}
-            >
-              <Text style={styles.addSetText}>+ Add Set</Text>
-            </TouchableOpacity>
+            {/* Previous + Add Set Row */}
+            <View style={styles.addSetRow}>
+              {(() => {
+                const lastSet = exercise.sets.length > 0
+                  ? [...exercise.sets].sort((a, b) => a.set_number - b.set_number)[exercise.sets.length - 1]
+                  : null;
+                const previousSet = lastSet
+                  ? exercise.previousSets?.find(ps => ps.set_number === lastSet.set_number)
+                  : null;
+                return previousSet ? (
+                  <Text style={styles.previousText}>
+                    Previous {previousSet.reps}×{previousSet.weight}
+                  </Text>
+                ) : (
+                  <View />
+                );
+              })()}
+              <TouchableOpacity onPress={() => handleAddSet(exercise.id)}>
+                <Text style={styles.addSetText}>+ Add Set</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ))}
 
@@ -681,6 +693,7 @@ const styles = StyleSheet.create({
   exerciseDetails: {
     fontSize: 12,
     color: '#888888',
+    marginTop: 4,
   },
   tableHeader: {
     flexDirection: 'row',
@@ -704,15 +717,13 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
-  prevCol: {
-    flex: 2.5,
-    textAlign: 'center',
-  },
   repsCol: {
     flex: 2,
+    marginRight: 4,
   },
   weightCol: {
     flex: 2,
+    marginLeft: 4,
   },
   checkCol: {
     flex: 1,
@@ -721,11 +732,6 @@ const styles = StyleSheet.create({
   setNumber: {
     fontSize: 14,
     color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  previousValue: {
-    fontSize: 12,
-    color: '#888888',
     textAlign: 'center',
   },
   input: {
@@ -744,13 +750,19 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#33CC33',
   },
-  addSetButton: {
+  addSetRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginTop: 12,
     paddingVertical: 8,
-    alignItems: 'center',
+  },
+  previousText: {
+    fontSize: 12,
+    color: '#888888',
   },
   addSetText: {
-    color: '#888888',
+    color: '#FFFFFF',
     fontSize: 14,
   },
   addExerciseButton: {

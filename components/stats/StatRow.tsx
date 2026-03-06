@@ -25,7 +25,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingBottom: 16,
-    paddingLeft: 8,
   },
   label: {
     flex: 1,

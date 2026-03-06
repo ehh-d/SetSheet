@@ -27,6 +27,11 @@ export function ExerciseSummaryCard({ exercise }: ExerciseSummaryCardProps) {
     return e1rm > max ? e1rm : max;
   }, 0);
 
+  // PR: highest weight lifted
+  const prWeight = completedSets.reduce((max, s) => {
+    return (s.weight || 0) > max ? (s.weight || 0) : max;
+  }, 0);
+
   return (
     <View style={styles.wrapper}>
       {/* Card */}
@@ -38,13 +43,16 @@ export function ExerciseSummaryCard({ exercise }: ExerciseSummaryCardProps) {
             onPress={() => setExpanded(!expanded)}
             activeOpacity={0.7}
           >
-            <View style={styles.imagePlaceholder} />
-
             <View style={styles.titleContainer}>
               <Text style={styles.title}>{exerciseName}</Text>
-              <Text style={[styles.muscleGroup, expanded && styles.muscleGroupExpanded]}>
-                {muscleGroup}
-              </Text>
+              <View style={styles.subtitleRow}>
+                <Text style={[styles.muscleGroup, expanded && styles.muscleGroupExpanded]}>
+                  {exercise.equipment ? `${exercise.equipment} • ` : ''}{muscleGroup}
+                </Text>
+                {!expanded && estimated1RM > 0 && (
+                  <Text style={styles.inlineOnerm}>1RM {estimated1RM} lbs</Text>
+                )}
+              </View>
             </View>
 
             <Ionicons
@@ -54,17 +62,11 @@ export function ExerciseSummaryCard({ exercise }: ExerciseSummaryCardProps) {
             />
           </TouchableOpacity>
 
-          <View style={styles.divider} />
+          {expanded && <View style={styles.divider} />}
 
-          {/* Detail rows — always visible */}
+          {/* Detail rows — only when expanded */}
+          {expanded && (
           <View style={styles.detailRows}>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Total Volume</Text>
-              <View style={styles.detailValue}>
-                <Text style={styles.detailValueBold}>{totalVolume.toLocaleString()}</Text>
-                <Text style={styles.detailUnit}>lbs</Text>
-              </View>
-            </View>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>1 Rep Max</Text>
               <View style={styles.detailValue}>
@@ -72,7 +74,24 @@ export function ExerciseSummaryCard({ exercise }: ExerciseSummaryCardProps) {
                 <Text style={styles.detailUnit}>lbs</Text>
               </View>
             </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Total Volume</Text>
+                  <View style={styles.detailValue}>
+                    <Text style={styles.detailValueBold}>{totalVolume.toLocaleString()}</Text>
+                    <Text style={styles.detailUnit}>lbs</Text>
+                  </View>
+                </View>
+                {prWeight > 0 && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>PR</Text>
+                    <View style={styles.detailValue}>
+                      <Text style={styles.detailValueBold}>{prWeight}</Text>
+                      <Text style={styles.detailUnit}>lbs</Text>
+                    </View>
+                  </View>
+                )}
           </View>
+          )}
 
           {/* Set details — only when expanded */}
           {expanded && (
@@ -82,7 +101,6 @@ export function ExerciseSummaryCard({ exercise }: ExerciseSummaryCardProps) {
                 <Text style={styles.setHeaderText}>Set</Text>
                 <Text style={styles.setHeaderText}>Reps</Text>
                 <Text style={styles.setHeaderText}>Lbs</Text>
-                <Text style={styles.setHeaderText}>PR</Text>
               </View>
 
               {/* Set rows */}
@@ -92,11 +110,6 @@ export function ExerciseSummaryCard({ exercise }: ExerciseSummaryCardProps) {
                     <Text style={styles.setCell}>{idx + 1}</Text>
                     <Text style={styles.setCell}>{set.reps ?? '-'}</Text>
                     <Text style={styles.setCellBold}>{set.weight ?? '-'}</Text>
-                    <View style={styles.prCell}>
-                      {set.is_pr && (
-                        <Ionicons name="star" size={16} color="#D5D5D5" />
-                      )}
-                    </View>
                   </View>
                 ))}
               </View>
@@ -118,13 +131,14 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: 32,
-    paddingHorizontal: 16,
+    paddingHorizontal: 24,
     paddingVertical: 24,
     gap: 20,
   },
   cardCollapsed: {
     borderWidth: 1,
     borderColor: '#313131',
+    margin: -1,
   },
   cardExpanded: {
     backgroundColor: '#1B1B1B',
@@ -145,8 +159,19 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 8,
   },
+  subtitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  inlineOnerm: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#999999',
+    marginRight: -44,
+  },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#FFFFFF',
   },

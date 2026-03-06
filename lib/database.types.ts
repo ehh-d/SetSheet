@@ -40,6 +40,8 @@ export type Database = {
       }
       exercises: {
         Row: {
+          aliases: string[] | null
+          body_region: string
           category_ids: string[] | null
           created_at: string | null
           created_by: string | null
@@ -52,6 +54,8 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          aliases?: string[] | null
+          body_region: string
           category_ids?: string[] | null
           created_at?: string | null
           created_by?: string | null
@@ -64,6 +68,8 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          aliases?: string[] | null
+          body_region?: string
           category_ids?: string[] | null
           created_at?: string | null
           created_by?: string | null

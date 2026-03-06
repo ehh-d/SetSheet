@@ -14,6 +14,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,7 +24,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { useAuth } from '../contexts/AuthContext';
-import { WorkoutHeader } from '../components/WorkoutHeader';
+import { WorkoutHeader, WorkoutHeaderHandle } from '../components/WorkoutHeader';
 
 type ExerciseSearchNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -101,9 +102,49 @@ export default function ExerciseSearchScreen() {
   const panelHeightAnim = useRef(new Animated.Value(120)).current;
   const collapsedHeightRef = useRef(120);
   const isAnimatingRef = useRef(false);
+  const headerRef = useRef<WorkoutHeaderHandle>(null);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
+  const headerHeightRef = useRef(0);
+  const panelPaddingAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardWillShow', (e) => {
+      headerRef.current?.collapse();
+      setIsKeyboardVisible(true);
+      Animated.parallel([
+        Animated.timing(headerTranslateY, {
+          toValue: -headerHeightRef.current,
+          duration: e.duration || 250,
+          useNativeDriver: false,
+        }),
+        Animated.timing(panelPaddingAnim, {
+          toValue: -(insets.bottom + 8),
+          duration: e.duration || 250,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    });
+    const hide = Keyboard.addListener('keyboardWillHide', (e) => {
+      setIsKeyboardVisible(false);
+      Animated.parallel([
+        Animated.timing(headerTranslateY, {
+          toValue: 0,
+          duration: e.duration || 250,
+          useNativeDriver: false,
+        }),
+        Animated.timing(panelPaddingAnim, {
+          toValue: 0,
+          duration: e.duration || 250,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    });
+    return () => { show.remove(); hide.remove(); };
   }, []);
 
   const loadData = async () => {
@@ -156,7 +197,8 @@ export default function ExerciseSearchScreen() {
 
     if (searchQuery) {
       filtered = filtered.filter(ex =>
-        ex.name.toLowerCase().includes(searchQuery.toLowerCase())
+        ex.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        ex.aliases?.some((a: string) => a.toLowerCase().includes(searchQuery.toLowerCase()))
       );
     }
 
@@ -422,7 +464,12 @@ export default function ExerciseSearchScreen() {
   return (
     <View style={styles.container}>
       {/* Header */}
+      <Animated.View
+        style={{ marginTop: headerTranslateY, overflow: 'hidden' }}
+        onLayout={(e) => { headerHeightRef.current = e.nativeEvent.layout.height; }}
+      >
       <WorkoutHeader
+        ref={headerRef}
         date={formattedDate}
         ordinalDay={ordinalDay}
         workoutName={sheetName}
@@ -449,18 +496,17 @@ export default function ExerciseSearchScreen() {
           );
         }}
       />
-
+      </Animated.View>
 
       {/* Exercise list */}
       <ScrollView
-        style={styles.exerciseList}
+        style={[styles.exerciseList, isKeyboardVisible && { paddingTop: insets.top }]}
         contentContainerStyle={{ paddingBottom: bottomPanelHeight + 8 }}
         keyboardShouldPersistTaps="handled"
       >
         {/* Exercises count header — scrolls with list */}
         <View style={styles.listHeader}>
-          <Text style={styles.listHeaderTitle}>Exercises</Text>
-          <Text style={styles.listHeaderCount}>{filteredExercises.length}</Text>
+          <Text style={styles.listHeaderTitle}>Exercises <Text style={styles.listHeaderCount}>({filteredExercises.length})</Text></Text>
         </View>
 
         {loading ? (
@@ -523,7 +569,7 @@ export default function ExerciseSearchScreen() {
                             <Ionicons
                               name={isExpanded ? 'chevron-up' : 'chevron-down'}
                               size={20}
-                              color={cardIsLight ? '#1B1B1B' : '#FFFFFF'}
+                              color={'#FFFFFF'}
                             />
                           ) : (
                             <View style={isSingleSelected ? styles.actionButtonRemove : undefined}>
@@ -607,9 +653,13 @@ export default function ExerciseSearchScreen() {
       </ScrollView>
 
       {/* Bottom panel — unified search + filter */}
-      <Animated.View
-        style={[styles.bottomPanel, { height: panelHeightAnim }]}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.bottomPanelWrapper}
       >
+        <Animated.View
+          style={[styles.bottomPanel, isFilterPanelOpen && { height: panelHeightAnim }]}
+        >
         {isFilterPanelOpen ? (
           <View style={[styles.filterPanelContent, { paddingBottom: insets.bottom + 16 }]}>
             <View style={styles.filterPanelHeader}>
@@ -670,8 +720,8 @@ export default function ExerciseSearchScreen() {
             </ScrollView>
           </View>
         ) : (
-          <View
-            style={[styles.bottomPanelCollapsed, { paddingBottom: insets.bottom + 16 }]}
+          <Animated.View
+            style={[styles.bottomPanelCollapsed, { paddingBottom: Animated.add(insets.bottom + 16, panelPaddingAnim) }]}
             onLayout={(e) => {
               if (!isAnimatingRef.current) {
                 const h = e.nativeEvent.layout.height;
@@ -722,9 +772,10 @@ export default function ExerciseSearchScreen() {
                 ))}
               </ScrollView>
             )}
-          </View>
+          </Animated.View>
         )}
-      </Animated.View>
+        </Animated.View>
+      </KeyboardAvoidingView>
 
       {/* Edit name modal */}
       <Modal
@@ -783,7 +834,7 @@ const styles = StyleSheet.create({
   },
 
   // Bottom panel
-  bottomPanel: {
+  bottomPanelWrapper: {
     position: 'absolute',
     left: 0,
     right: 0,
@@ -791,7 +842,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0F0F0',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    overflow: 'hidden',
+  },
+  bottomPanel: {
+    backgroundColor: '#F0F0F0',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: -8 },
     shadowOpacity: 0.2,
@@ -819,12 +874,13 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     borderWidth: 3,
     borderColor: '#757575',
-    paddingHorizontal: 18,
+    paddingLeft: 18,
+    paddingRight: 22,
     paddingVertical: 13,
   },
   searchInput: {
     flex: 1,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '500',
     color: '#1B1B1B',
   },
@@ -889,8 +945,8 @@ const styles = StyleSheet.create({
   },
   listHeaderCount: {
     fontSize: 14,
-    color: '#888888',
-    fontWeight: '500',
+    color: '#B0B0B0',
+    fontWeight: '400',
   },
 
   // Exercise list
@@ -901,10 +957,10 @@ const styles = StyleSheet.create({
     marginTop: 40,
   },
   sectionHeader: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#888888',
-    paddingHorizontal: 20,
+    color: '#B0B0B0',
+    paddingHorizontal: 36,
     paddingTop: 16,
     paddingBottom: 6,
     textTransform: 'uppercase',
@@ -922,14 +978,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   exerciseCardLight: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 0,
+    backgroundColor: '#313131',
+    borderColor: '#505050',
   },
   exerciseMain: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
   },
   exerciseInfo: {
     flex: 1,
@@ -939,17 +996,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#FFFFFF',
-    marginBottom: 3,
+    marginBottom: 8,
   },
   exerciseNameDark: {
-    color: '#1B1B1B',
+    color: '#F0F0F0',
   },
   exerciseSubtitle: {
     fontSize: 12,
     color: '#888888',
+    lineHeight: 16,
   },
   exerciseSubtitleDark: {
-    color: '#666666',
+    color: '#C8C8C8',
   },
   selectedEquipmentText: {
     fontSize: 12,
@@ -963,12 +1021,10 @@ const styles = StyleSheet.create({
   exerciseRight: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    width: 24,
   },
   actionButtonRemove: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#1B1B1B',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -976,19 +1032,20 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 22,
     fontWeight: '300',
-    lineHeight: 26,
+    lineHeight: 28,
     textAlign: 'center',
+    marginTop: -2,
   },
   actionButtonTextRemove: {
     color: '#FFFFFF',
   },
   actionButtonTextDark: {
-    color: '#1B1B1B',
+    color: '#FFFFFF',
   },
 
   // Variations
   variationsContainer: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 6,
     paddingBottom: 10,
   },
   variationsDivider: {
@@ -997,22 +1054,23 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   variationsDividerLight: {
-    backgroundColor: '#E0E0E0',
+    backgroundColor: '#505050',
   },
   variationRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingLeft: 18,
+    paddingRight: 22,
     marginVertical: 2,
     borderRadius: 10,
   },
   variationRowOnLight: {
-    backgroundColor: '#F5F5F5',
+    backgroundColor: 'transparent',
   },
   variationRowSelected: {
-    backgroundColor: '#D5D5D5',
+    backgroundColor: '#505050',
     borderRadius: 32,
     height: 56,
   },
@@ -1023,10 +1081,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   variationTextOnLight: {
-    color: '#1B1B1B',
+    color: '#FFFFFF',
   },
   variationTextSelected: {
-    color: '#1B1B1B',
+    color: '#FFFFFF',
     fontWeight: '600',
   },
 

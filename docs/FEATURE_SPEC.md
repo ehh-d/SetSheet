@@ -56,7 +56,7 @@
 ### Key Fields
 
 **exercises:**
-- `name`, `muscle_group`, `category_ids[]`, `specific_muscles[]`, `description`, `equipment text[]`
+- `name`, `body_region`, `muscle_group`, `category_ids[]`, `specific_muscles[]`, `aliases[]`, `description`, `equipment text[]`
 
 **workouts:**
 - `user_id`, `workout_date`, `name`, `category_id`, `status` (active/completed), `notes`, `completed_at`
@@ -119,9 +119,16 @@
 - Sheet content or empty state
 - Bottom tab bar
 
+**Swipe Navigation:**
+- Swipe left/right on the content area navigates to next/previous day
+- Uses pan gesture with dampened drag effect (content follows finger at 40% of touch movement)
+- If drag exceeds 25% of screen width (accounting for velocity), content slides off and next/previous date loads
+- Otherwise content springs back to original position
+- Updates focusDate state which syncs with calendar panel above
+
 **States:**
-- **No sheet:** "No workout" message + date + "TODAY" label if current day
-- **Active sheet:** "Continue Sheet" button + "TODAY" label if current day
+- **No sheet:** "No workout" message + date + "(Today)" label if current day
+- **Active sheet:** "Continue Sheet" button + "(Today)" label if current day
 - **Completed sheet:** Workout summary inline (see below)
 
 ### 2. Calendar Panel
@@ -236,7 +243,7 @@ The goal: always show the relevant month label at the bottom of the visible area
 **Filtering (client-side):**
 - Active categories stored as array; if empty, all exercises shown
 - Category match: exercise's `category_ids` overlaps with active category IDs
-- Search query applied on top of category filter
+- Search query applied on top of category filter; matches against exercise name and aliases array
 - "Exercises" count reflects current filtered result
 
 **Exercise Cards:**
@@ -261,6 +268,11 @@ The goal: always show the relevant month label at the bottom of the visible area
   - Inactive row: white bg, dark text, `+`
   - Live "X exercises Available" count
   - Uses `Animated.timing` (no Reanimated); `collapsedHeightRef` tracks natural collapsed height via `onLayout`
+
+**Keyboard Behavior:**
+- When keyboard opens: bottom panel rises above keyboard (KeyboardAvoidingView wrapper); WorkoutHeader collapses and slides off screen (animated marginTop); exercise list fills viewport with safe area (island) padding
+- When keyboard closes: header slides back; bottom panel returns to normal position
+- Safe area padding on bottom panel adjusts (reduced when keyboard visible, full when hidden)
 
 **Sheet Name:**
 - Initialized from `categoryName` route param, editable by user
@@ -324,7 +336,8 @@ The goal: always show the relevant month label at the bottom of the visible area
 
 **Exercise Card:**
 - Header row: exercise name + muscle group (left) + trash icon (right)
-- Set table columns (flex proportions): Set# | Previous | Reps | Lbs | ✓
+- Set table columns (flex proportions): Set# | Reps | Lbs | ✓
+- Previous set data shown at bottom of card, inline with "+ Add Set" (format: "Previous [reps]×[weight]" on left, "+ Add Set" on right)
 - Trash icon: confirms via Alert → deletes all sets for that exercise → deletes workout_exercise → reloads
 
 **Set Table Input Behavior:**
@@ -341,7 +354,9 @@ The goal: always show the relevant month label at the bottom of the visible area
 - *Add Set*: new set inherits last set's current reps and weight input values
 
 **Complete Workout:**
-- If uncompleted sets exist, user is prompted to mark them all complete before finishing
+- If uncompleted sets exist, user is prompted: "Mark all as complete?"
+  - **Yes:** marks all incomplete sets as completed, then completes workout
+  - **No:** deletes incomplete sets, then completes workout (only completed sets saved)
 - Prevents accidentally submitting a workout with 0 logged data
 
 **Add Exercise Flow:**
@@ -367,34 +382,33 @@ The goal: always show the relevant month label at the bottom of the visible area
 - After completing a workout, navigation resets to MainTabs with `initialFocusDate` = workout date, landing directly on the summary
 
 **Header:**
-- Workout name as large bold title on top
-- Date below in muted text (with "TODAY" label above if current day)
-- Edit icon (`create-outline`) — reopens workout as active, navigates to ActiveWorkout
-- Delete icon (`trash-outline`) — confirms then permanently deletes workout + all exercises + sets; refreshes calendar
+- Date line with "(Today)" suffix if current day (e.g., "March 6th (Today)")
+- Workout name as large bold title below date, with action icons on same row:
+  - Edit icon (`create-outline`, white) — reopens workout as active, navigates to ActiveWorkout
+  - Delete icon (`trash-outline`, red) — confirms then permanently deletes workout + all exercises + sets; refreshes calendar
 
 **Stats Section:**
-- "Exercises" section header
-- Row-based stats in rounded card (`#1B1B1B`, 32px radius):
-  - Exercises count
-  - Total Sets
-  - Total Reps
-  - Total Volume (lbs)
+- "Workout Summary" section title
+- Four-column layout with divider lines between columns:
+  - Exercises | Sets | Reps | Volume
+  - Label on top, bold value below
 
 **Notes Section:**
-- "Workout Notes" label with edit icon
+- "Workout Notes" label
 - Note text in muted color
 
 **Exercise List:**
 - Flat sorted list (no stage grouping)
 - Exercise cards (accordion-style, collapsed by default):
   - **Collapsed state:**
-    - Header: Image placeholder + exercise name + muscle group + chevron indicator
-    - Total Volume (see Calculations section)
-    - 1 Rep Max estimate (Brzycki formula, highest across completed sets)
+    - Header: exercise name + equipment/muscle group subtitle + chevron indicator
+    - "1RM [value] lbs" shown inline on right side of subtitle row (smaller, muted text)
+    - No divider, no detail rows
   - **Expanded state:**
-    - Same header with chevron indicator
-    - Total Volume and 1 Rep Max
-    - Set detail table showing: Set number / Reps / Weight / PR indicator
+    - Same header (1RM inline hidden)
+    - Divider line
+    - Detail rows: 1 Rep Max, Total Volume, PR (highest weight lifted)
+    - Set detail table showing: Set number / Reps / Weight
   - Toggle expanded/collapsed by tapping header
 
 **Duplicate Sheet Button:**
@@ -403,7 +417,6 @@ The goal: always show the relevant month label at the bottom of the visible area
 - Navigates to Active Workout screen
 
 **Components Used:**
-- `StatRow` — Label/value row for stats and metric rows within cards
 - `ExerciseSummaryCard` — Accordion exercise card with expand/collapse
 
 ### 9. Exercise Library (Future)
@@ -613,7 +626,7 @@ Actual database columns (not legacy names):
 - `CalendarDateRow` — Individual date row with inline month labels
 - `StatRow` — Label/value row for stats display
 - `ExerciseSummaryCard` — Accordion exercise card for completed workout summary
-- `WorkoutHeader` — Dark panel shared across ExerciseSearch and ActiveWorkout; supports editable name (pencil → modal), subtitle, expandable selected exercises list (drag handle bar, PanResponder), drag-to-reorder per row (RN responder system, `onReorderItems` prop), optional Start/Add button (green pill) + Cancel button (red pill); `startLabel` prop overrides button text
+- `WorkoutHeader` — Dark panel shared across ExerciseSearch and ActiveWorkout; supports editable name (pencil → modal), subtitle, expandable selected exercises list; Cancel button on left, Start/Save on right (drag handle bar, PanResponder), drag-to-reorder per row (RN responder system, `onReorderItems` prop), optional Start/Add button (green pill) + Cancel button (red pill); `startLabel` prop overrides button text
 
 ---
 

@@ -4,6 +4,69 @@ All notable changes to SetSheet are documented in this file.
 
 ---
 
+## [2026-03-06] - Active Workout, Home Screen, Swipe Navigation
+
+### Added
+- **Home Screen: Swipe navigation** — swipe left/right on the content area to navigate between dates; updates calendar selection; uses pan gesture with drag effect (content follows finger with dampened resistance, snaps to next/previous day or springs back)
+  - **Known issue:** brief flash of current page content after swipe completes before new date loads; to be addressed next session
+- **Home Screen: Workout summary stats columns** — Exercises, Sets, Reps, Volume displayed as four columns with divider lines (replaced row-based stat list)
+
+### Changed
+- **Active Workout: Previous column relocated** — removed "Previous" column from set table; previous set data now shown at bottom of exercise card inline with "+ Add Set" (format: "Previous 10×135")
+- **Active Workout: Set input spacing** — 8px gap between Reps and Lbs input fields
+- **Active Workout: "+ Add Set" text** — changed from gray to white
+- **Active Workout: Exercise detail spacing** — added 4px margin between exercise name and equipment/muscle group subtitle
+- **Active Workout: Complete workout (incomplete sets)** — "No" on incomplete sets prompt now deletes those sets before completing (previously kept them)
+- **Home Screen: Completed workout query fixed** — removed `workout_stages` join that was failing with PGRST200 error (relationship no longer exists); workouts now load and display correctly
+- **Home Screen: Header layout** — date line with "(Today)" on top, workout title + edit/delete icons on same row below
+- **Home Screen: Icon colors** — edit pencil is white, trash bin is red
+- **Home Screen: Body padding** — 20px horizontal padding on summary header, stats, and workout summary title
+- **Home Screen: "Today" label** — combined with date on one line in sentence case: "March 6th (Today)"
+- **Exercise Summary Card: Image placeholder removed** — title and subtitle take full width
+- **Exercise Summary Card: Title size** — reduced from 24px to 20px
+- **Exercise Summary Card: Equipment shown** — subtitle now shows "Equipment • Muscle Group"
+- **Exercise Summary Card: 1RM inline (collapsed)** — shown as "1RM 45 lbs" on the right side of subtitle row; hidden when expanded, shown in detail rows instead
+- **Exercise Summary Card: Detail rows** — 1RM, Total Volume, and PR only visible when expanded; divider hidden when collapsed
+- **Exercise Summary Card: PR row** — shows highest weight lifted below Total Volume (when expanded); removed PR column from set table
+- **Exercise Summary Card: Border jump fix** — `margin: -1` on collapsed card to offset 1px border
+- **Exercise Summary Card: Side padding** — increased to 24px
+- **Swipe-back disabled** — gesture navigation disabled on all workout flow screens (StartWorkout, CategorySelection, ExerciseSearch, ActiveWorkout, UploadTemplate, TemplatePreview)
+- **Database types updated** — added `body_region` (string) and `aliases` (string[]) to exercises table type
+
+### Fixed
+- **Workout complete not saving** — status was saving correctly but HomeScreen detailed query failed due to stale `workout_stages` relationship; removed the join
+
+---
+
+## [2026-03-06] - Exercise Search UX + Styling Improvements
+
+### Changed
+- **Exercise Search: Multi-field search** — search now matches against exercise name, muscle_group, and specific_muscles (e.g., searching "shoulder" finds "Overhead Press" via its muscle_group)
+- **Exercise Search: Keyboard behavior** — bottom search panel rises above iOS keyboard via KeyboardAvoidingView wrapper; header panel collapses and slides off screen when keyboard opens (animated marginTop); exercise list fills viewport with island padding preserved; header slides back on keyboard dismiss
+- **Exercise Search: Bottom panel padding** — reduced gap between search bar and keyboard when keyboard is active; safe area padding restored when keyboard is hidden
+- **Exercise Search: Search filter** — now matches against exercise name and aliases array only (removed muscle_group and specific_muscles matching)
+- **Exercise Search: Selected card styling** — updated to match Figma; dark gray (#313131) background instead of white; light text (#F0F0F0/#C8C8C8); selected variation pill uses #505050 background
+- **Exercise Search: Card layout** — increased header horizontal padding to 24px; variation pill edges closer to card edges; variation row inner padding adjusted for icon alignment
+- **Exercise Search: Section headers** — larger (16px), lighter color (#B0B0B0), aligned with card text; exercise count shown inline as "(152)" with regular weight
+- **Exercise Search: Typography** — search input font reduced to 16px; increased gap between exercise name and subtitle; subtitle line height set to 16px
+- **WorkoutHeader: "Sheet" label removed** — header now shows workout name without "Sheet" suffix
+- **WorkoutHeader: Button order swapped** — Cancel on left, Start/Save on right, 8px gap
+- **Exercise cards: × button** — removed circular background; centered icon
+
+---
+
+## [2026-03-05] - App Icon + Splash Screen + EAS Build Setup
+
+### Added
+- **EAS internal distribution build** — `preview` profile configured for ad-hoc distribution to registered devices; both devices registered via Apple Developer Portal
+- **GitHub Actions OTA updates** — pushing to main will trigger `eas update --channel preview` for JS/asset changes (native changes require a new build)
+
+### Changed
+- **App icon** — updated to new SetSheet icon (book/sheet isometric illustration)
+- **Splash screen** — updated to match new app icon on white background
+
+---
+
 ## [2026-03-05] - Workout Summary Redesign + Sheet View Actions + UX Fixes
 
 ### Added
