@@ -309,11 +309,13 @@ The goal: always show the relevant month label at the bottom of the visible area
 **Trigger:** "Upload Template" from Start Workout panel
 
 **Layout (top to bottom):**
-1. Category dropdown — selects workout type; grouped by tabs (All / Splits / Muscle / Cardio / Conditioning); categories ordered by `display_order`; each category shows a subtitle with relevant muscle groups
-2. Exercise count dropdown — 3 to 10 (default 6)
-3. Generated prompt — dynamic text block combining: public exercise library URL, selected category filter instruction, template format example, exercise count + distribution instruction; user copies this into any AI
-4. Text input (multiline, min height 120) — "Paste your template here..."
-5. Submit button
+1. Title + subtitle ("Generate with AI" / "Select a category, copy the prompt, and paste it into your AI.")
+2. Category group tab bar — inline row (All / Splits / Muscle / Cardio / Conditioning); filters the category dropdown; no background; items spread across full width
+3. Category dropdown — opens modal with filtered categories; subtitles from `muscle_groups` DB field; ordered by `display_order`
+4. Exercise count dropdown — 3 to 10 (default 6)
+5. Generated prompt — contained card with prompt text + "Copy Prompt" button (right-aligned, inside container); only shown when category is selected
+6. Text input (multiline, min height 120) — "Paste your template here..."
+7. Submit button
 
 **AI Prompt Generation:**
 - Prompt built dynamically from selected category + exercise count
@@ -362,6 +364,8 @@ The goal: always show the relevant month label at the bottom of the visible area
 **Set Table Input Behavior:**
 - Reps and weight inputs use local state for instant response
 - DB save triggers `onBlur` only (no per-keystroke reload)
+- Toggling ✓ also flushes pending reps/weight input values to DB in the same update (no data loss if user taps ✓ without blurring the input first)
+- Toggle complete is awaited (not fire-and-forget) to prevent race conditions with Complete Workout
 - `useEffect` on workout data syncs new set IDs into local state without overwriting in-progress edits
 - Toggle complete, add set, and delete set update local state optimistically (no full reload)
 - When "+ Add Set" is tapped, the previous set is automatically marked as completed if it wasn't already
@@ -374,8 +378,8 @@ The goal: always show the relevant month label at the bottom of the visible area
 
 **Complete Workout:**
 - If uncompleted sets exist, user is prompted: "Mark all as complete?"
-  - **Yes:** marks all incomplete sets as completed, then completes workout
-  - **No:** deletes incomplete sets, then completes workout (only completed sets saved)
+  - **Yes:** flushes pending reps/weight input values, marks all incomplete sets as completed, then completes workout
+  - **No:** deletes incomplete sets, then completes workout (only previously completed sets saved)
 - Prevents accidentally submitting a workout with 0 logged data
 
 **Add Exercise Flow:**

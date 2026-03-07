@@ -19,14 +19,18 @@ All notable changes to SetSheet are documented in this file.
 
 ### Added
 - **Upload Template: AI prompt generation** — category dropdown and exercise count dropdown build a dynamic prompt for users to paste into any AI; prompt includes the public exercise library URL, selected category filter, template format example, and exercise count instruction
-- **Upload Template: Grouped category picker** — modal with tab bar (All / Splits / Muscle / Cardio / Conditioning) filters the category list; each category shows a subtitle describing its muscle groups
+- **Upload Template: Category group tab bar** — inline tab bar (All / Splits / Muscle / Cardio / Conditioning) on screen filters the category dropdown; selecting a tab clears the selected category if it doesn't belong to the new group
 - **Upload Template: Exercise count picker** — dropdown (3–10, default 6) adds "Select N exercises. Distribute evenly across the specific muscles in this category." to the prompt
 
 ### Changed
-- **Upload Template: Layout simplified** — removed standalone Template Format section; input field minHeight reduced from 300 to 120; placeholder changed to "Paste your template here..."
+- **Upload Template: Layout simplified** — removed standalone Template Format section; removed background from Generate with AI section; prompt displayed in its own container with Copy Prompt button inside; input field minHeight reduced to 120; placeholder "Paste your template here..."
 - **Upload Template: Instructional text** — says "paste it into your AI" (no specific AI brand mentioned)
-- **Upload Template: Categories ordered by display_order** — dropdown respects `ORDER BY display_order` from Supabase
-- **ExerciseSearchScreen: Removed workout_stages references** — start-workout and add-to-workout flows no longer insert into or query `workout_stages`; `stage_id` set to `null` on workout_exercises insert
+- **Dynamic categories everywhere** — removed hardcoded `CATEGORY_GROUPS` and `CATEGORY_SUBTITLES` maps from CategorySelectionScreen, UploadTemplateScreen, and ExerciseSearchScreen; tab filtering now uses `category_group` column; subtitles now use `muscle_groups` array joined as comma-separated string; all pulled from Supabase
+- **Categories ordered by display_order** — all screens (CategorySelection, ExerciseSearch, UploadTemplate) now order categories by `display_order` instead of `name`
+- **`stage_id` fully removed** — removed `stage_id` from workout_exercises inserts in ExerciseSearchScreen and from `database.types.ts`; `workout_stages` FK relationship removed from types
+- **Active Workout: Set completion flushes input values** — toggling ✓ now saves pending reps/weight from input fields to DB in the same update (previously only saved on blur, so values could be lost if user tapped ✓ without tapping out of the field first)
+- **Active Workout: "Yes" auto-complete flushes inputs** — tapping "Yes" on the incomplete sets prompt now also saves pending reps/weight values before marking sets complete
+- **Active Workout: Toggle set complete awaits DB** — `is_completed` update is now awaited instead of fire-and-forget, preventing race conditions where sets appeared incomplete in the completed workout view
 
 ### Fixed
 - **Swipe flash resolved** — eliminated brief flash of old page content after swipe completes (known issue from 2026-03-06)
