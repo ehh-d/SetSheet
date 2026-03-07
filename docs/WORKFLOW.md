@@ -33,18 +33,16 @@ This happens **once at session start**, not before every edit.
 
 ## Environment Setup (Session Start)
 
-**Purpose:** Run Metro bundler to enable simultaneous development on iOS Simulator and physical device. Both receive hot-reload updates from same Metro server.
+**Purpose:** Open iOS Simulator for development.
 
 After reading docs, run:
 
 ```bash
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-npx expo start --dev-client
+open -a Simulator
 ```
 
-Press `i` to launch iOS Simulator. Physical device auto-connects if previously paired.
-
-Do not restart Metro during session unless prompted.
+Physical device auto-connects if previously paired to a running Metro server.
 
 ---
 
@@ -266,7 +264,7 @@ Do NOT include:
 
 **Session start:**
 1. Read FEATURE_SPEC.md
-2. Understand scope
+2. Open Simulator
 3. Code
 
 **Session end:**

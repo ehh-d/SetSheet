@@ -43,16 +43,6 @@ interface SelectedExercise {
 
 const getExerciseKey = (exerciseId: string, equipment: string) => `${exerciseId}::${equipment}`;
 
-const CATEGORY_SUBTITLES: Record<string, string> = {
-  'Pull Day': 'Back, Biceps, Rear Delts',
-  'Push Day': 'Chest, Shoulders, Triceps',
-  'Leg Day': 'Quads, Hamstrings, Glutes',
-  'Upper Body': 'Chest, Back, Shoulders, Arms',
-  'Lower Body': 'Quads, Hamstrings, Glutes, Calves',
-  'Full Body': 'All Muscle Groups',
-  'Core': 'Abs, Obliques, Lower Back',
-  'Cardio': 'Cardiovascular Endurance',
-};
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -150,7 +140,7 @@ export default function ExerciseSearchScreen() {
   const loadData = async () => {
     const promises: Promise<any>[] = [
       supabase.from('exercises').select('*').order('name'),
-      supabase.from('categories').select('*').order('name'),
+      supabase.from('categories').select('*').order('display_order'),
     ];
 
     if (existingWorkoutId) {
@@ -331,19 +321,6 @@ export default function ExerciseSearchScreen() {
       if (workoutError) throw workoutError;
       if (!workout) throw new Error('Workout creation failed');
 
-      const { data: stage, error: stageError } = await supabase
-        .from('workout_stages')
-        .insert({
-          workout_id: workout.id,
-          name: 'General Workout',
-          sort_order: 0,
-        })
-        .select()
-        .single();
-
-      if (stageError) throw stageError;
-      if (!stage) throw new Error('Stage creation failed');
-
       for (let i = 0; i < selectedExercises.length; i++) {
         const ex = selectedExercises[i];
         const setCount = ex.proposedSets ?? 1;
@@ -353,7 +330,6 @@ export default function ExerciseSearchScreen() {
           .from('workout_exercises')
           .insert({
             workout_id: workout.id,
-            stage_id: stage.id,
             exercise_id: ex.exerciseId,
             equipment: ex.equipment,
             sort_order: i,
@@ -391,15 +367,6 @@ export default function ExerciseSearchScreen() {
     if (!existingWorkoutId) return;
 
     try {
-      const stagesResult = await supabase
-        .from('workout_stages')
-        .select('id')
-        .eq('workout_id', existingWorkoutId)
-        .order('sort_order')
-        .limit(1);
-
-      const stageId = stagesResult.data?.[0]?.id;
-
       const newExercises = selectedExercises.filter(
         ex => !existingExerciseKeys.has(getExerciseKey(ex.exerciseId, ex.equipment))
       );
@@ -412,7 +379,7 @@ export default function ExerciseSearchScreen() {
       // Use each exercise's index in the full panel order as its sort_order
       const newWorkoutExercises = newExercises.map((ex) => ({
         workout_id: existingWorkoutId,
-        stage_id: stageId,
+        stage_id: null,
         exercise_id: ex.exerciseId,
         equipment: ex.equipment,
         sort_order: selectedExercises.findIndex(
@@ -694,7 +661,7 @@ export default function ExerciseSearchScreen() {
             <ScrollView style={styles.filterCategoryList} showsVerticalScrollIndicator={false}>
               {allCategories.map(cat => {
                 const isActive = activeCategories.some(c => c.id === cat.id);
-                const subtitle = CATEGORY_SUBTITLES[cat.name] || cat.muscle_groups?.join(', ') || '';
+                const subtitle = cat.muscle_groups?.join(', ') || '';
                 return (
                   <TouchableOpacity
                     key={cat.id}

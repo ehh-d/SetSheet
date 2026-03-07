@@ -26,38 +26,7 @@ type CategorySelectionNavigationProp = NativeStackNavigationProp<
 type CategorySelectionRouteProp = RouteProp<RootStackParamList, 'CategorySelection'>;
 
 type TabType = 'All' | 'Splits' | 'Muscle' | 'Cardio' | 'Conditioning';
-
-const CATEGORY_GROUPS: Record<TabType, string[]> = {
-  All: [],
-  Splits: ['Push', 'Pull', 'Legs', 'Upper Body', 'Lower Body', 'Full Body'],
-  Muscle: ['Chest', 'Back', 'Shoulders', 'Arms', 'Core', 'Posterior Chain'],
-  Cardio: ['Cardio', 'Running', 'Cycling', 'Rowing'],
-  Conditioning: ['HIIT', 'MetCon', 'GPP', 'Circuit', 'Conditioning'],
-};
-
-const CATEGORY_SUBTITLES: Record<string, string> = {
-  'Full Body': 'All',
-  'Push': 'Chest, Shoulders, Triceps',
-  'Pull': 'Back, Biceps, Rear Delts',
-  'Legs': 'Quads, Hamstrings, Glutes, Calves',
-  'Upper Body': 'Chest, Back, Shoulders, Arms',
-  'Lower Body': 'Quads, Hamstrings, Glutes, Calves',
-  'Core': 'Abs, Obliques, Lower Back',
-  'Posterior Chain': 'Hamstrings, Glutes, Lower Back, Erectors',
-  'Arms': 'Biceps, Triceps, Forearms',
-  'Chest': 'Pectorals, Anterior Deltoid',
-  'Back': 'Lats, Rhomboids, Traps',
-  'Shoulders': 'Deltoids, Rotator Cuff',
-  'Cardio': 'Aerobic endurance',
-  'Running': 'Distance, intervals, tempo',
-  'Cycling': 'Endurance, LISS',
-  'Rowing': 'Full body, low impact',
-  'HIIT': 'High intensity intervals',
-  'MetCon': 'Metabolic conditioning',
-  'GPP': 'General physical preparedness',
-  'Circuit': 'Multi-exercise rotation',
-  'Conditioning': 'Work capacity, stamina',
-};
+const TABS: TabType[] = ['All', 'Splits', 'Muscle', 'Cardio', 'Conditioning'];
 
 export default function CategorySelectionScreen() {
   const [selectedTab, setSelectedTab] = useState<TabType>('All');
@@ -77,7 +46,7 @@ export default function CategorySelectionScreen() {
     const { data, error } = await supabase
       .from('categories')
       .select('*')
-      .order('name');
+      .order('display_order');
 
     if (!error && data) {
       setCategories(data);
@@ -87,8 +56,7 @@ export default function CategorySelectionScreen() {
 
   const getFilteredCategories = () => {
     if (selectedTab === 'All') return categories;
-    const groupNames = CATEGORY_GROUPS[selectedTab];
-    return categories.filter(cat => groupNames.includes(cat.name));
+    return categories.filter(cat => cat.category_group === selectedTab);
   };
 
   const handleCategorySelect = (category: Category) => {
@@ -149,7 +117,7 @@ export default function CategorySelectionScreen() {
                 <View style={styles.cardContent}>
                   <Text style={styles.categoryName}>{category.name}</Text>
                   <Text style={styles.categoryDescription}>
-                    {CATEGORY_SUBTITLES[category.name] || category.description || ''}
+                    {category.muscle_groups?.join(', ') || ''}
                   </Text>
                 </View>
                 <Text style={styles.arrow}>›</Text>
@@ -167,7 +135,7 @@ export default function CategorySelectionScreen() {
           contentContainerStyle={styles.tabsContent}
         >
           <View style={styles.tabBar}>
-            {(['All', 'Splits', 'Muscle', 'Cardio', 'Conditioning'] as TabType[]).map(tab => (
+            {TABS.map(tab => (
               <TouchableOpacity
                 key={tab}
                 style={[styles.tab, selectedTab === tab && styles.tabSelected]}

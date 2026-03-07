@@ -4,11 +4,42 @@ All notable changes to SetSheet are documented in this file.
 
 ---
 
+## [2026-03-07] - Swipe Navigation Carousel Rebuild
+
+### Changed
+- **Home Screen: Swipe navigation rebuilt as pre-loaded carousel** — replaced single-page animated swipe with a multi-page carousel; adjacent dates are pre-rendered so swiping reveals already-loaded content with no flash or reload
+  - Window spans 14 past days + today; capped at today (no future dates)
+  - Only DatePages within ±3 of current position are mounted (~7 active at a time)
+  - 1:1 finger tracking during swipe (removed 40% dampening); rubber-band at window edges
+  - Appending future dates removed; calendar panel used for jumping to distant dates
+  - Calendar date tap resets the window centered on the selected date
+- **DatePage wrapped in React.memo** — prevents unnecessary re-renders when parent state changes (e.g., focusDate update for calendar sync)
+- **DatePage: Loading state only on initial fetch** — re-fetches update data silently in background without flashing a loading spinner
+- **WORKFLOW.md: Session start** — opens iOS Simulator directly instead of starting Metro bundler
+
+### Added
+- **Upload Template: AI prompt generation** — category dropdown and exercise count dropdown build a dynamic prompt for users to paste into any AI; prompt includes the public exercise library URL, selected category filter, template format example, and exercise count instruction
+- **Upload Template: Grouped category picker** — modal with tab bar (All / Splits / Muscle / Cardio / Conditioning) filters the category list; each category shows a subtitle describing its muscle groups
+- **Upload Template: Exercise count picker** — dropdown (3–10, default 6) adds "Select N exercises. Distribute evenly across the specific muscles in this category." to the prompt
+
+### Changed
+- **Upload Template: Layout simplified** — removed standalone Template Format section; input field minHeight reduced from 300 to 120; placeholder changed to "Paste your template here..."
+- **Upload Template: Instructional text** — says "paste it into your AI" (no specific AI brand mentioned)
+- **Upload Template: Categories ordered by display_order** — dropdown respects `ORDER BY display_order` from Supabase
+- **ExerciseSearchScreen: Removed workout_stages references** — start-workout and add-to-workout flows no longer insert into or query `workout_stages`; `stage_id` set to `null` on workout_exercises insert
+
+### Fixed
+- **Swipe flash resolved** — eliminated brief flash of old page content after swipe completes (known issue from 2026-03-06)
+- **Future date swiping blocked** — prevented swiping past today, which caused CalendarPanel to cycle through invalid months
+- **Template parser: first exercise eaten as category** — first line was always treated as workout name; now checks if line 1 matches the exercise regex pattern (`Name (Equipment) SetsxReps`) and if so, uses "Workout" as the default category and parses line 1 as an exercise
+- **workout_stages table error** — `workout_stages` table was dropped from Supabase but ExerciseSearchScreen still queried/inserted into it; removed both references
+
+---
+
 ## [2026-03-06] - Active Workout, Home Screen, Swipe Navigation
 
 ### Added
-- **Home Screen: Swipe navigation** — swipe left/right on the content area to navigate between dates; updates calendar selection; uses pan gesture with drag effect (content follows finger with dampened resistance, snaps to next/previous day or springs back)
-  - **Known issue:** brief flash of current page content after swipe completes before new date loads; to be addressed next session
+- **Home Screen: Swipe navigation** — swipe left/right on the content area to navigate between dates; updates calendar selection; uses pan gesture with drag effect (snaps to next/previous day or springs back)
 - **Home Screen: Workout summary stats columns** — Exercises, Sets, Reps, Volume displayed as four columns with divider lines (replaced row-based stat list)
 
 ### Changed

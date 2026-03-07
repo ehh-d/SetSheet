@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           category_group: string
           created_at: string | null
+          display_order: number
           id: string
           muscle_groups: string[] | null
           name: string
@@ -25,6 +26,7 @@ export type Database = {
         Insert: {
           category_group: string
           created_at?: string | null
+          display_order?: number
           id?: string
           muscle_groups?: string[] | null
           name: string
@@ -32,6 +34,7 @@ export type Database = {
         Update: {
           category_group?: string
           created_at?: string | null
+          display_order?: number
           id?: string
           muscle_groups?: string[] | null
           name?: string
@@ -228,7 +231,6 @@ export type Database = {
           proposed_sets: number | null
           proposed_weight: number | null
           sort_order: number | null
-          stage_id: string | null
           workout_id: string
         }
         Insert: {
@@ -241,7 +243,6 @@ export type Database = {
           proposed_sets?: number | null
           proposed_weight?: number | null
           sort_order?: number | null
-          stage_id?: string | null
           workout_id: string
         }
         Update: {
@@ -254,7 +255,6 @@ export type Database = {
           proposed_sets?: number | null
           proposed_weight?: number | null
           sort_order?: number | null
-          stage_id?: string | null
           workout_id?: string
         }
         Relationships: [
@@ -263,13 +263,6 @@ export type Database = {
             columns: ["exercise_id"]
             isOneToOne: false
             referencedRelation: "exercises"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "workout_exercises_stage_id_fkey"
-            columns: ["stage_id"]
-            isOneToOne: false
-            referencedRelation: "workout_stages"
             referencedColumns: ["id"]
           },
           {

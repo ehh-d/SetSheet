@@ -18,12 +18,18 @@ export interface ParsedTemplate {
 export function parseTemplate(text: string): ParsedTemplate {
   const lines = text.trim().split('\n').filter(line => line.trim());
 
-  // First line is the workout name/category (e.g., "Push Day")
-  const category = lines[0].trim();
+  const exercisePattern = /^(.+?)\s*(?:\(([^)]+)\))?\s+(\d+)x(\d+)(?:-(\d+))?$/;
+
+  // Check if first line is a category header or an exercise
+  const firstLineClean = lines[0].trim().replace(/^[-•*]\s*/, '');
+  const firstLineIsExercise = exercisePattern.test(firstLineClean);
+
+  const category = firstLineIsExercise ? 'Workout' : lines[0].trim();
+  const startIndex = firstLineIsExercise ? 0 : 1;
 
   const exercises: ParsedExercise[] = [];
 
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = startIndex; i < lines.length; i++) {
     const line = lines[i].trim();
 
     // Skip stage headers like [Compound] — stages are no longer used
@@ -32,7 +38,7 @@ export function parseTemplate(text: string): ParsedTemplate {
     // Strip list prefix (-, •, *) then match:
     // "Exercise Name (Equipment) 3x10" or "Exercise Name 3x8-10"
     const cleanLine = line.replace(/^[-•*]\s*/, '');
-    const match = cleanLine.match(/^(.+?)\s*(?:\(([^)]+)\))?\s+(\d+)x(\d+)(?:-(\d+))?$/);
+    const match = cleanLine.match(exercisePattern);
     if (match) {
       exercises.push({
         name: match[1].trim(),

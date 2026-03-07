@@ -20,7 +20,7 @@
 | **Sheets** | Primary app screen for browsing dates and managing sheets |
 | **Focus Date** | Currently viewed date (defaults to today on app launch) |
 | **Calendar Panel** | Top sliding drawer for date navigation (list view only) |
-| ~~**Stage**~~ | Removed from UI — `workout_stages` table still exists for FK constraints but stages are not shown or managed by users |
+| ~~**Stage**~~ | Removed — `workout_stages` table dropped from Supabase; `stage_id` set to `null` on workout_exercises |
 | ~~**Variation**~~ | Removed — `exercise_variations` table dropped; equipment is now a `text[]` field on `exercises` |
 
 ---
@@ -48,7 +48,7 @@
 | `categories` | 20 | Workout categories across 4 groups |
 | `profiles` | 2 | User accounts |
 | `workouts` | — | User workout sessions |
-| `workout_stages` | — | Optional workout sections (kept for FK constraints; not shown in UI) |
+| ~~`workout_stages`~~ | — | Dropped — `stage_id` nullable on `workout_exercises` |
 | `workout_exercises` | — | Exercises in a workout |
 | `sets` | — | Individual logged sets |
 | `personal_records` | — | PR tracking (future) |
@@ -119,11 +119,14 @@
 - Sheet content or empty state
 - Bottom tab bar
 
-**Swipe Navigation:**
+**Swipe Navigation (pre-loaded carousel):**
 - Swipe left/right on the content area navigates to next/previous day
-- Uses pan gesture with dampened drag effect (content follows finger at 40% of touch movement)
-- If drag exceeds 25% of screen width (accounting for velocity), content slides off and next/previous date loads
-- Otherwise content springs back to original position
+- Adjacent dates are pre-rendered in a carousel (14 past days + today); swiping reveals already-loaded content
+- 1:1 finger tracking; rubber-band effect at window edges
+- If drag exceeds 25% of screen width (accounting for velocity), commits to next/previous day; otherwise springs back
+- Capped at today — cannot swipe to future dates
+- Only DatePages within ±3 of current position are mounted (~7 active at a time)
+- Calendar panel date tap resets the carousel window centered on the selected date
 - Updates focusDate state which syncs with calendar panel above
 
 **States:**
@@ -301,22 +304,38 @@ The goal: always show the relevant month label at the bottom of the visible area
 
 ### 6. Upload Template
 
-**Purpose:** Paste workout template from Claude
+**Purpose:** Generate and paste AI workout templates
 
 **Trigger:** "Upload Template" from Start Workout panel
 
-**Layout:**
-- Text input (multiline)
-- Submit button
+**Layout (top to bottom):**
+1. Category dropdown — selects workout type; grouped by tabs (All / Splits / Muscle / Cardio / Conditioning); categories ordered by `display_order`; each category shows a subtitle with relevant muscle groups
+2. Exercise count dropdown — 3 to 10 (default 6)
+3. Generated prompt — dynamic text block combining: public exercise library URL, selected category filter instruction, template format example, exercise count + distribution instruction; user copies this into any AI
+4. Text input (multiline, min height 120) — "Paste your template here..."
+5. Submit button
+
+**AI Prompt Generation:**
+- Prompt built dynamically from selected category + exercise count
+- Includes link to public exercise library endpoint
+- Template format example matches selected category name
+- Instructs AI to filter exercises by selected category, match names exactly, return as plain text code block
+- Instructional text says "paste it into your AI" (no specific AI brand)
+
+**Template Parsing:**
+- First line checked against exercise regex (`Name (Equipment) SetsxReps`); if it matches, treated as an exercise and category defaults to "Workout"; otherwise first line is the category/workout name
+- `[Stage Name]` headers are skipped (stages no longer used)
+- Exercise format: `Name (Equipment) SetsxReps` or `Name SetsxReps-RepsMax`
 
 **Flow:**
-1. Paste Claude-formatted template
-2. Submit → validates exercises against library
-3. Navigates directly to Exercise Search with:
+1. Select category + exercise count → copy generated prompt → paste into AI
+2. Paste AI response into text input → Submit
+3. Validates exercises against library
+4. Navigates directly to Exercise Search with:
    - Exercises pre-selected (with proposed sets + reps from template)
    - Category pre-set from template name
-4. User can modify selection
-5. Start Workout → Active Workout Sheet (sets pre-created from template proposals)
+5. User can modify selection
+6. Start Workout → Active Workout Sheet (sets pre-created from template proposals)
 
 ### 7. Active Workout Sheet
 
@@ -469,14 +488,13 @@ Hammer Curl 3x10-12
 ```
 
 **Parsing rules:**
-- Line 1: Workout name/category
-- `[Stage Name]`: Stage headers (optional)
-- `Exercise Name SETSxREPS`: Exercise with sets/reps
+- Line 1: If it matches exercise pattern (`Name (Equipment) SetsxReps`), treated as an exercise and category defaults to "Workout"; otherwise treated as workout name/category
+- `[Stage Name]`: Stage headers (skipped — stages no longer used)
+- `Exercise Name SETSxREPS` or `Exercise Name (Equipment) SETSxREPS-REPSMAX`: Exercise with sets/reps
 
 **Validation:**
 - Exercise names must match exactly against database
-- Stages optional — defaults to "General Workout"
-- If no category specified → "General Workout"
+- If no category line detected → "Workout"
 
 ---
 
@@ -595,7 +613,7 @@ Auto-detected when weight × reps exceeds previous best for that exercise variat
 | One workout per day | Enforced — shows alert if workout exists |
 | Start Workout entry | Single button → panel with manual/upload options |
 | Bottom nav | 4 items (Sheets, Start Workout, Exercise Library, Profile) |
-| Stages in UI | Removed — `workout_stages` table kept for FK constraints; a default stage is created silently when a workout is started |
+| Stages in UI | Removed — `workout_stages` table dropped; `stage_id` set to `null` on workout_exercises |
 | Cancel/leave Active Workout | Shows confirmation dialog; confirming deletes the workout entirely (no draft state) |
 | Equipment storage | `text[]` on `exercises` table — no separate `exercise_variations` table |
 | Template flow | Skips TemplatePreview; goes directly to ExerciseSearch with pre-selections |

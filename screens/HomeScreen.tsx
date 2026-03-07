@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Workout, WorkoutExerciseWithDetails, WorkoutStage } from '../types';
-import { useNavigation, useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, MainTabParamList } from '../types';
@@ -32,8 +32,22 @@ interface WorkoutWithDetails extends Workout {
 }
 
 
+const PAST_DAYS = 14;
+
+function buildDateWindow(center: Date): Date[] {
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const start = subDays(center, PAST_DAYS);
+  const dates: Date[] = [];
+  let current = start;
+  while (format(current, 'yyyy-MM-dd') <= todayStr) {
+    dates.push(current);
+    current = addDays(current, 1);
+  }
+  return dates;
+}
+
 // Individual date page component
-function DatePage({
+const DatePage = React.memo(function DatePage({
   date,
   session,
   navigation,
@@ -50,13 +64,14 @@ function DatePage({
 }) {
   const [sheet, setSheet] = useState<WorkoutWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
+  const hasLoadedRef = useRef(false);
 
   const isPastDate = !isSameDay(date, new Date()) && date < new Date();
   const isToday = isSameDay(date, new Date());
 
   const loadSheet = useCallback(async () => {
     if (!session?.user) return;
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     const dateStr = format(date, 'yyyy-MM-dd');
 
     const { data: workoutData, error: workoutError } = await supabase
@@ -108,14 +123,13 @@ function DatePage({
     } else {
       setSheet(workoutData);
     }
+    hasLoadedRef.current = true;
     setLoading(false);
   }, [session?.user, date]);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadSheet();
-    }, [loadSheet, calendarRefreshKey])
-  );
+  useEffect(() => {
+    loadSheet();
+  }, [loadSheet, calendarRefreshKey]);
 
   const handleDeleteWorkout = () => {
     if (!sheet) return;
@@ -358,7 +372,7 @@ function DatePage({
       <View style={styles.bottomPadding} />
     </ScrollView>
   );
-}
+});
 
 export default function HomeScreen() {
   const route = useRoute<RouteProp<MainTabParamList, 'Home'>>();
@@ -372,53 +386,73 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const collapsedHeight = getCollapsedHeight(insets.top);
 
-  const handleDateSelect = useCallback((date: Date) => {
-    setFocusDate(date);
-  }, []);
+  const SCREEN_WIDTH = Dimensions.get('window').width;
+  const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
+
+  const translateX = useRef(new Animated.Value(-PAST_DAYS * SCREEN_WIDTH)).current;
+  const pageIndexRef = useRef(PAST_DAYS);
+
+  const [windowDates, setWindowDates] = useState<Date[]>(() => {
+    const dateStr = route.params?.initialFocusDate;
+    const center = dateStr ? parseISO(dateStr) : new Date();
+    return buildDateWindow(center);
+  });
+  const windowDatesRef = useRef<Date[]>(windowDates);
+  windowDatesRef.current = windowDates;
 
   const handleCalendarRefresh = useCallback(() => {
     setCalendarRefreshKey(k => k + 1);
   }, []);
 
-  const SCREEN_WIDTH = Dimensions.get('window').width;
-  const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
-  const translateX = useRef(new Animated.Value(0)).current;
+  const handleDateSelect = useCallback((date: Date) => {
+    const newDates = buildDateWindow(date);
+    pageIndexRef.current = PAST_DAYS;
+    translateX.setValue(-PAST_DAYS * SCREEN_WIDTH);
+    windowDatesRef.current = newDates;
+    setFocusDate(date);
+    setWindowDates(newDates);
+  }, []);
 
   const panGesture = useMemo(() =>
     Gesture.Pan()
       .activeOffsetX([-20, 20])
       .failOffsetY([-10, 10])
       .onUpdate((e) => {
-        // Dampen the drag to feel like resistance
-        const damped = e.translationX * 0.4;
-        translateX.setValue(damped);
+        const currentIndex = pageIndexRef.current;
+        const raw = -currentIndex * SCREEN_WIDTH + e.translationX;
+        const maxIndex = windowDatesRef.current.length - 1;
+        let value = raw;
+        if (raw > 0) value = raw * 0.2;
+        else if (raw < -maxIndex * SCREEN_WIDTH) value = -maxIndex * SCREEN_WIDTH + (raw + maxIndex * SCREEN_WIDTH) * 0.2;
+        translateX.setValue(value);
       })
       .onEnd((e) => {
+        const currentIndex = pageIndexRef.current;
+        const maxIndex = windowDatesRef.current.length - 1;
         const projected = e.translationX + e.velocityX * 0.15;
-        if (projected < -SWIPE_THRESHOLD) {
-          // Swipe left — next day
+        if (projected < -SWIPE_THRESHOLD && currentIndex < maxIndex) {
+          const newIndex = currentIndex + 1;
           Animated.timing(translateX, {
-            toValue: -SCREEN_WIDTH,
+            toValue: -newIndex * SCREEN_WIDTH,
             duration: 200,
             useNativeDriver: true,
           }).start(() => {
-            setFocusDate(prev => addDays(prev, 1));
-            translateX.setValue(0);
+            pageIndexRef.current = newIndex;
+            setFocusDate(windowDatesRef.current[newIndex]);
           });
-        } else if (projected > SWIPE_THRESHOLD) {
-          // Swipe right — previous day
+        } else if (projected > SWIPE_THRESHOLD && currentIndex > 0) {
+          const newIndex = currentIndex - 1;
           Animated.timing(translateX, {
-            toValue: SCREEN_WIDTH,
+            toValue: -newIndex * SCREEN_WIDTH,
             duration: 200,
             useNativeDriver: true,
           }).start(() => {
-            setFocusDate(prev => subDays(prev, 1));
-            translateX.setValue(0);
+            pageIndexRef.current = newIndex;
+            setFocusDate(windowDatesRef.current[newIndex]);
           });
         } else {
-          // Snap back
           Animated.spring(translateX, {
-            toValue: 0,
+            toValue: -currentIndex * SCREEN_WIDTH,
             useNativeDriver: true,
             tension: 100,
             friction: 20,
@@ -429,23 +463,33 @@ export default function HomeScreen() {
     []
   );
 
+  const currentPage = pageIndexRef.current;
+
   return (
     <View style={styles.container}>
-      {/* Calendar Panel */}
       <CalendarPanel onDateSelect={handleDateSelect} focusDate={focusDate} refreshKey={calendarRefreshKey} />
-
-      {/* Sheet View Content */}
       <GestureDetector gesture={panGesture}>
-        <Animated.View style={[styles.content, { transform: [{ translateX }] }]}>
-          <DatePage
-            date={focusDate}
-            session={session}
-            navigation={navigation}
-            collapsedHeight={collapsedHeight}
-            calendarRefreshKey={calendarRefreshKey}
-            onCalendarRefresh={handleCalendarRefresh}
-          />
-        </Animated.View>
+        <View style={styles.content}>
+          <Animated.View style={[
+            { position: 'absolute', top: 0, bottom: 0, left: 0, flexDirection: 'row', width: SCREEN_WIDTH * windowDates.length },
+            { transform: [{ translateX }] },
+          ]}>
+            {windowDates.map((date, idx) => (
+              <View key={format(date, 'yyyy-MM-dd')} style={{ width: SCREEN_WIDTH }}>
+                {Math.abs(idx - currentPage) <= 3 && (
+                  <DatePage
+                    date={date}
+                    session={session}
+                    navigation={navigation}
+                    collapsedHeight={collapsedHeight}
+                    calendarRefreshKey={calendarRefreshKey}
+                    onCalendarRefresh={handleCalendarRefresh}
+                  />
+                )}
+              </View>
+            ))}
+          </Animated.View>
+        </View>
       </GestureDetector>
     </View>
   );

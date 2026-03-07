@@ -250,6 +250,11 @@ export default function ActiveWorkoutScreen() {
     const newStatus = !currentStatus;
     const newCompletedAt = newStatus ? new Date().toISOString() : null;
 
+    // Flush any pending input values for this set
+    const pending = setInputValues[setId];
+    const repsNum = pending?.reps === '' ? null : pending?.reps ? parseFloat(pending.reps) : null;
+    const weightNum = pending?.weight === '' ? null : pending?.weight ? parseFloat(pending.weight) : null;
+
     // Optimistic update
     setWorkout(prev => {
       if (!prev) return prev;
@@ -258,13 +263,18 @@ export default function ActiveWorkoutScreen() {
         workout_exercises: prev.workout_exercises.map(ex => ({
           ...ex,
           sets: ex.sets.map(s =>
-            s.id === setId ? { ...s, is_completed: newStatus, completed_at: newCompletedAt } : s
+            s.id === setId ? { ...s, reps: repsNum ?? s.reps, weight: weightNum ?? s.weight, is_completed: newStatus, completed_at: newCompletedAt } : s
           ),
         })),
       };
     });
 
-    supabase.from('sets').update({ is_completed: newStatus, completed_at: newCompletedAt }).eq('id', setId);
+    await supabase.from('sets').update({
+      reps: repsNum,
+      weight: weightNum,
+      is_completed: newStatus,
+      completed_at: newCompletedAt,
+    }).eq('id', setId);
   };
 
   const handleDeleteExercise = (workoutExerciseId: string) => {
@@ -374,7 +384,7 @@ export default function ActiveWorkoutScreen() {
           {
             text: 'No',
             onPress: async () => {
-              // Delete incomplete sets before completing
+              // Delete incomplete sets — they won't show in history
               await Promise.all(
                 incompleteSets.map(s =>
                   supabase.from('sets').delete().eq('id', s.id)
@@ -388,9 +398,12 @@ export default function ActiveWorkoutScreen() {
             onPress: async () => {
               const completedAt = new Date().toISOString();
               await Promise.all(
-                incompleteSets.map(s =>
-                  supabase.from('sets').update({ is_completed: true, completed_at: completedAt }).eq('id', s.id)
-                )
+                incompleteSets.map(s => {
+                  const pending = setInputValues[s.id];
+                  const reps = pending?.reps === '' ? null : pending?.reps ? parseFloat(pending.reps) : s.reps;
+                  const weight = pending?.weight === '' ? null : pending?.weight ? parseFloat(pending.weight) : s.weight;
+                  return supabase.from('sets').update({ reps, weight, is_completed: true, completed_at: completedAt }).eq('id', s.id);
+                })
               );
               await completeWorkout();
             },

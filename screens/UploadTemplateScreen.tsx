@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,12 @@ import {
   ActivityIndicator,
   Alert,
   Share,
+  Modal,
+  FlatList,
+  Dimensions,
 } from 'react-native';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { format } from 'date-fns';
@@ -18,6 +23,12 @@ import { RootStackParamList } from '../types';
 import { parseTemplate, validateTemplate } from '../utils/templateParser';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
+
+const EXERCISE_URL = 'https://kcgsllsvowamrwljnxmi.supabase.co/functions/v1/exercises';
+
+type TabType = 'All' | 'Splits' | 'Muscle' | 'Cardio' | 'Conditioning';
+const TABS: TabType[] = ['All', 'Splits', 'Muscle', 'Cardio', 'Conditioning'];
 
 type UploadTemplateScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -34,15 +45,31 @@ export default function UploadTemplateScreen() {
 
   const [templateText, setTemplateText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState<{ id: string; name: string; category_group: string; muscle_groups: string[] | null }[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [categoryTab, setCategoryTab] = useState<TabType>('All');
+  const [exerciseCount, setExerciseCount] = useState(6);
+  const [showCountPicker, setShowCountPicker] = useState(false);
 
-  const copyPromptText = `Use this template:
+  useEffect(() => {
+    const fetchCategories = async () => {
+      const { data } = await supabase.from('categories').select('id, name, category_group, muscle_groups').order('display_order');
+      if (data) setCategories(data);
+    };
+    fetchCategories();
+  }, []);
 
-[Workout Name]
-- Exercise Name (Equipment) SetsxReps
-- Exercise Name (Equipment) SetsxReps`;
+  const templateExample = selectedCategory
+    ? `${selectedCategory}\n- Exercise Name (Equipment) SetsxReps\n- Exercise Name (Equipment) SetsxReps`
+    : `[Workout Name]\n- Exercise Name (Equipment) SetsxReps\n- Exercise Name (Equipment) SetsxReps`;
 
-  const handleCopyTemplate = async () => {
-    await Share.share({ message: copyPromptText });
+  const promptText = selectedCategory
+    ? `Generate a ${selectedCategory} workout from this exercise set: ${EXERCISE_URL}\n\nUse this template format:\n\n${templateExample}\n\nFilter by exercises where categories includes "${selectedCategory}". Match exercise names exactly.\n\nSelect ${exerciseCount} exercises. Distribute evenly across the specific muscles in this category.\n\nReturn the workout as a plain text code block.`
+    : null;
+
+  const handleCopyPrompt = async () => {
+    if (promptText) await Share.share({ message: promptText });
   };
 
   const goToExerciseSearch = async (parsedTemplate: any) => {
@@ -147,19 +174,99 @@ export default function UploadTemplateScreen() {
 
       <ScrollView style={styles.content} keyboardDismissMode="interactive">
         <View style={styles.instructions}>
-          <Text style={styles.instructionsTitle}>Template Format:</Text>
-          <Text style={styles.instructionsText}>
-            {'Pull Day\n- Barbell Row (Barbell) 4x8-10\n- Lat Pulldown (Cable) 3x10-12'}
-          </Text>
-          <TouchableOpacity style={styles.copyButton} onPress={handleCopyTemplate}>
-            <Text style={styles.copyButtonText}>Copy Template</Text>
+          <Text style={styles.instructionsTitle}>Generate with AI</Text>
+          <Text style={styles.instructionsSubtitle}>Select a category, copy the prompt, and paste it into your AI.</Text>
+
+          <View style={styles.groupTabBar}>
+            {TABS.map(tab => (
+              <TouchableOpacity
+                key={tab}
+                style={[styles.groupTab, categoryTab === tab && styles.groupTabSelected]}
+                onPress={() => {
+                  setCategoryTab(tab);
+                  if (selectedCategory && tab !== 'All') {
+                    const match = categories.find(c => c.name === selectedCategory);
+                    if (match && match.category_group !== tab) setSelectedCategory(null);
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.groupTabText, categoryTab === tab && styles.groupTabTextSelected]}>
+                  {tab}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity style={styles.dropdown} onPress={() => setShowCategoryPicker(true)}>
+            <Text style={selectedCategory ? styles.dropdownText : styles.dropdownPlaceholder}>
+              {selectedCategory ?? 'Select workout category…'}
+            </Text>
+            <Ionicons name="chevron-down" size={18} color="#888888" />
           </TouchableOpacity>
+
+          <TouchableOpacity style={styles.dropdown} onPress={() => setShowCountPicker(true)}>
+            <Text style={styles.dropdownText}>{exerciseCount} exercises</Text>
+            <Ionicons name="chevron-down" size={18} color="#888888" />
+          </TouchableOpacity>
+
+          {promptText && (
+            <View style={styles.promptBox}>
+              <Text style={styles.promptText}>{promptText}</Text>
+              <TouchableOpacity style={styles.copyButton} onPress={handleCopyPrompt}>
+                <Text style={styles.copyButtonText}>Copy Prompt</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
+
+        <Modal visible={showCategoryPicker} transparent animationType="fade">
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowCategoryPicker(false)}>
+            <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+              <Text style={styles.modalTitle}>Select Category</Text>
+              <FlatList
+                data={categoryTab === 'All' ? categories : categories.filter(c => c.category_group === categoryTab)}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.modalRow, selectedCategory === item.name && styles.modalRowActive]}
+                    onPress={() => { setSelectedCategory(item.name); setShowCategoryPicker(false); }}
+                  >
+                    <Text style={[styles.modalRowText, selectedCategory === item.name && styles.modalRowTextActive]}>{item.name}</Text>
+                    {item.muscle_groups && item.muscle_groups.length > 0 && (
+                      <Text style={styles.modalRowSubtitle}>{item.muscle_groups.join(', ')}</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        <Modal visible={showCountPicker} transparent animationType="fade">
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowCountPicker(false)}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Exercise Count</Text>
+              <FlatList
+                data={[3, 4, 5, 6, 7, 8, 9, 10]}
+                keyExtractor={(item) => String(item)}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.modalRow, exerciseCount === item && styles.modalRowActive]}
+                    onPress={() => { setExerciseCount(item); setShowCountPicker(false); }}
+                  >
+                    <Text style={[styles.modalRowText, exerciseCount === item && styles.modalRowTextActive]}>{item} exercises</Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </TouchableOpacity>
+        </Modal>
 
         <TextInput
           style={styles.input}
           multiline
-          placeholder="Paste or type your template here..."
+          placeholder="Paste your template here..."
           placeholderTextColor="#555555"
           value={templateText}
           onChangeText={setTemplateText}
@@ -217,35 +324,136 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   instructions: {
-    backgroundColor: '#252525',
-    padding: 16,
-    borderRadius: 12,
     marginBottom: 20,
   },
   instructionsTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
-    marginBottom: 8,
+    marginBottom: 4,
+  },
+  instructionsSubtitle: {
+    fontSize: 13,
+    color: '#888888',
+    marginBottom: 14,
+    lineHeight: 18,
   },
   instructionsText: {
     fontSize: 14,
     color: '#AAAAAA',
     lineHeight: 22,
     fontFamily: 'Courier',
+  },
+  dropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#1A1A1A',
+    borderWidth: 1,
+    borderColor: '#333333',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     marginBottom: 14,
+  },
+  dropdownText: {
+    fontSize: 15,
+    color: '#FFFFFF',
+  },
+  dropdownPlaceholder: {
+    fontSize: 15,
+    color: '#555555',
+  },
+  promptBox: {
+    backgroundColor: '#252525',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 14,
+  },
+  promptText: {
+    fontSize: 14,
+    color: '#D5D5D5',
+    lineHeight: 20,
   },
   copyButton: {
     backgroundColor: '#333333',
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 8,
-    alignSelf: 'flex-start',
+    alignSelf: 'flex-end',
+    marginTop: 12,
   },
   copyButtonText: {
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  modalContent: {
+    backgroundColor: '#252525',
+    borderRadius: 16,
+    maxHeight: '60%',
+    paddingVertical: 16,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333333',
+  },
+  modalRow: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  modalRowActive: {
+    backgroundColor: '#333333',
+  },
+  modalRowText: {
+    fontSize: 15,
+    color: '#D5D5D5',
+  },
+  modalRowTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  modalRowSubtitle: {
+    fontSize: 12,
+    color: '#666666',
+    marginTop: 2,
+  },
+  groupTabBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  groupTab: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 16,
+  },
+  groupTabSelected: {
+    backgroundColor: '#D5D5D5',
+  },
+  groupTabText: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: '#757575',
+    lineHeight: 20,
+  },
+  groupTabTextSelected: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1B1B1B',
+    lineHeight: 20,
   },
   input: {
     backgroundColor: '#252525',
@@ -253,7 +461,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     padding: 16,
     borderRadius: 12,
-    minHeight: 300,
+    minHeight: 120,
     marginBottom: 20,
     fontFamily: 'Courier',
   },
