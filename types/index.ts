@@ -39,10 +39,10 @@ export type RootStackParamList = {
   MainTabs: undefined;
   StartWorkout: { date: string };
   CategorySelection: { date: string };
-  ExerciseSearch: { categoryId: string; categoryName: string; date: string; existingWorkoutId?: string; preSelectedExercises?: { exerciseId: string; exerciseName: string; equipment: string; muscleGroup: string; proposedSets?: number; proposedRepsMin?: number; }[] };
-  ActiveWorkout: { workoutId: string };
+  ExerciseSearch: { categoryId: string; categoryName: string; date: string; addToSession?: boolean; preSelectedExercises?: { exerciseId: string; exerciseName: string; equipment: string; muscleGroup: string; proposedSets?: number; proposedRepsMin?: number; }[] };
+  WorkoutOverview: { date: string; workoutName: string; categoryId: string };
+  ExerciseView: { exerciseLocalId: string };
   UploadTemplate: { date: string };
-  TemplatePreview: { parsedTemplate: any; date: string };
 };
 
 export type MainTabParamList = {

@@ -271,10 +271,7 @@ export function CalendarPanel({ onDateSelect, focusDate, refreshKey }: CalendarP
       // Collapse to week view
       sheetRef.current?.snapToIndex(0);
 
-      // Navigate to active workout (completed workouts show inline on Home)
-      if (workout && workout.status !== 'completed') {
-        navigation.navigate('ActiveWorkout', { workoutId: workout.id });
-      }
+      // Completed and in-progress workouts both show inline on Home
     },
     [navigation, onDateSelect]
   );

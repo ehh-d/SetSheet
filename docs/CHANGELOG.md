@@ -4,6 +4,55 @@ All notable changes to SetSheet are documented in this file.
 
 ---
 
+## [2026-04-03] - Active Workout UI Redesign + UX Improvements
+
+### Added
+- **ExerciseViewScreen: Equipment dropdown** — tap the equipment pill to open an inline dropdown showing all available equipment for that exercise; selecting updates the session context (local-first, no DB write until Complete)
+- **ExerciseViewScreen: Auto-complete sets** — when both reps and weight are filled and focus leaves the input, the set is automatically marked as complete
+- **ExerciseViewScreen: Uncheck on edit** — focusing a completed set's reps or weight input unchecks it; auto-rechecks on blur if both fields remain filled
+- **ExerciseViewScreen: Header ✓ marks all complete** — tapping the checkmark in the column header marks all sets for the exercise as complete
+- **ExerciseViewScreen: Trash icon** — in the header next to the info icon; confirms and removes the exercise from the session, then returns to Overview
+- **WorkoutOverviewScreen: Drag-to-reorder** — touch and drag the hamburger handle on any exercise row to reorder; committed to session context on release
+- **WorkoutOverviewScreen: Swipe-to-delete** — swipe left on an exercise row to reveal a red trash icon delete action
+
+### Changed
+- **WorkoutOverviewScreen: Redesigned to match Figma** — large workout title top-left, pencil edit icon top-right; "Exercises N" subtitle row; light rounded footer with black "Complete Workout" button + red "Cancel Workout" text
+- **ExerciseViewScreen: Redesigned to match Figma** — left-aligned large title, X close icon top-left, trash + info icons top-right; dark rounded input boxes for Reps/Lbs; filled box checkmark for completed sets, plain ✓ for incomplete; light rounded footer with dark "Next Exercise" button
+- **HomeScreen: Edit workout** — pencil icon on completed workout now loads existing exercises + sets into session context and navigates to WorkoutOverview (was: navigating to removed ActiveWorkoutScreen)
+- **HomeScreen: Continue Sheet** — "active" status workouts now load into WorkoutOverview via session context (was: navigating to removed ActiveWorkoutScreen)
+
+### Removed
+- **ActiveWorkoutScreen** — deleted; all entry points now use WorkoutOverview + ExerciseView
+- **TemplatePreviewScreen** — deleted; was already unreachable (UploadTemplateScreen navigates directly to ExerciseSearch)
+- **ExerciseSearch: `existingWorkoutId` mode** — removed; replaced by `addToSession` mode which uses session context instead of DB writes
+- **CalendarPanel: Navigate to ActiveWorkout** — removed; date selection now only updates focusDate; in-progress workouts show "Continue Sheet" inline on Home
+
+---
+
+## [2026-04-02] - Local-First Workout Architecture + Active Workout Redesign
+
+### Added
+- **WorkoutSessionContext** — New React Context holding all in-session workout state; nothing writes to DB until "Complete Workout"; methods: `initSession`, `clearSession`, `loadPreviousSets`, `addExercises`, `removeExercise`, `reorderExercises`, `updateWorkoutName`, `addSet`, `updateSetField`, `toggleSetComplete`, `deleteSet`
+- **WorkoutOverviewScreen** — New screen showing all session exercises; exercise rows display name, equipment · muscle group, and X/Y completed sets count; tap row → ExerciseView; Add Exercise → ExerciseSearch with `addToSession: true`; Complete Workout with incomplete sets dialog ("Go Back" / "Skip" / "Mark complete"); Cancel with confirmation; batch DB write (workout → workout_exercises → sets) only on complete
+- **ExerciseViewScreen** — New screen for per-exercise set logging; header shows exercise name, equipment · muscle group, info icon (placeholder); previous best shown as "Previous best: X reps × Y lbs"; sets table with Set# / Reps / Lbs / ✓ columns; swipe-to-delete sets; KeyboardAvoidingView; "+ Add Set" button; footer with optional Prev + Next Exercise / Back to Overview navigation
+- **EAS development build profile** — `APP_VARIANT=development` env var in `eas.json`; `app.config.js` dynamically sets app name ("SetSheet Dev") and bundle identifier (`com.hvelez21.SetSheet.dev`) for dev variant; runs side-by-side with production app on device
+- **expo-dev-client** installed for dev build support
+
+### Changed
+- **Active workout split into two screens** — replaced single-scroll `ActiveWorkoutScreen` with `WorkoutOverviewScreen` (exercise list) + `ExerciseViewScreen` (per-exercise logging)
+- **Start workout flow: local-first** — `handleStartWorkout` in ExerciseSearch no longer writes to DB; calls `initSession()` and navigates to WorkoutOverview; DB writes deferred to Complete Workout
+- **ExerciseSearch: Start button double-tap guard** — `isStarting` state disables button on first tap to prevent duplicate session init
+- **ExerciseSearch: `addToSession` mode** — when `addToSession: true` route param is present, selecting exercises calls `addExercises()` on context and navigates back to WorkoutOverview (no DB write)
+- **Duplicate Sheet button: local-first flow** — now calls `initSession()` and navigates to WorkoutOverview instead of creating a DB record and navigating to old ActiveWorkout
+
+### Fixed
+- **Double-tap Start creating duplicate workouts** — resolved by removing all DB writes from Start; double-tapping is now harmless
+- **"Workout in progress" false alert** — resolved by local-first; no premature DB record is created on Start
+- **Duplicate Sheet button text color** — changed from `#313131` (nearly invisible on dark bg) to `#FFFFFF`
+- **Duplicate Sheet loading old layout** — button was navigating to `ActiveWorkout`; now navigates to `WorkoutOverview`
+
+---
+
 ## [2026-03-07] - Swipe Navigation Carousel Rebuild
 
 ### Changed

@@ -339,64 +339,75 @@ The goal: always show the relevant month label at the bottom of the visible area
 5. User can modify selection
 6. Start Workout → Active Workout Sheet (sets pre-created from template proposals)
 
-### 7. Active Workout Sheet
+### 7. Workout Overview
 
-**Purpose:** Log exercises, sets, reps, weights during workout
+**Purpose:** Manage and submit a workout session in progress
 
-**Header:**
-- Uses shared `WorkoutHeader` component (matches ExerciseSearch header: dark panel, date/name/pencil/Cancel)
-- Date + workout name displayed; pencil icon opens rename modal → saves to `workouts.name` in DB
-- No Start/Add buttons; no expandable selected panel (header is display-only in this context)
+**Architecture:** Local-first — all session state lives in `WorkoutSessionContext` (React Context); nothing writes to DB until "Complete Workout" is tapped. Cancelling navigates away with no DB cleanup.
 
 **Layout:**
-- Flat sorted exercise list (no stage headers, no stage grouping)
-- Each exercise card has trash icon (top-right) for deletion
-- Exercise cards with set logging table (flex column widths, spans full card width)
-- "Add Exercise" button below the list
-- "Complete Workout" button at bottom (disabled until sets added)
+- Header: large bold workout name (top-left) + date, pencil icon (top-right) to rename
+- Scrollable exercise list
+- Footer: light `#F0F0F0` rounded-top panel (borderTopLeftRadius: 20, borderTopRightRadius: 20); black "Complete Workout" button + red "Cancel Workout" text link below
 
-**Exercise Card:**
-- Header row: exercise name + muscle group (left) + trash icon (right)
-- Set table columns (flex proportions): Set# | Reps | Lbs | ✓
-- Previous set data shown at bottom of card, inline with "+ Add Set" (format: "Previous [reps]×[weight]" on left, "+ Add Set" on right)
-- Trash icon: confirms via Alert → deletes all sets for that exercise → deletes workout_exercise → reloads
-
-**Set Table Input Behavior:**
-- Reps and weight inputs use local state for instant response
-- DB save triggers `onBlur` only (no per-keystroke reload)
-- Toggling ✓ also flushes pending reps/weight input values to DB in the same update (no data loss if user taps ✓ without blurring the input first)
-- Toggle complete is awaited (not fire-and-forget) to prevent race conditions with Complete Workout
-- `useEffect` on workout data syncs new set IDs into local state without overwriting in-progress edits
-- Toggle complete, add set, and delete set update local state optimistically (no full reload)
-- When "+ Add Set" is tapped, the previous set is automatically marked as completed if it wasn't already
-- "+ Add Set" duplicates the last set's reps and weight values into the new set
-
-**Set Pre-Population:**
-- *Template workout*: N sets created per exercise (from `proposed_sets`); reps pre-filled from `proposed_reps_min`; weight pre-filled from previous best
-- *Custom/manual workout*: 1 set created per exercise; reps + weight pre-filled from previous best
-- *Add Set*: new set inherits last set's current reps and weight input values
+**Exercise Rows:**
+- Dark `#242424` cards; exercise name (bold, 18px) + equipment · muscle group subtitle; set count badge (completed/total); hamburger icon on right
+- Tap row → navigates to ExerciseView for that exercise
+- Swipe left to reveal red trash delete action → calls `removeExercise()` on context
+- Hamburger icon is the drag handle for reordering (RN responder system); drag updates live visual order, commits on release via `reorderExercises()`
+- Scroll disabled while a drag is in progress
+- "+ Add Exercise" row at bottom → ExerciseSearch with `addToSession: true`
 
 **Complete Workout:**
-- If uncompleted sets exist, user is prompted: "Mark all as complete?"
-  - **Yes:** flushes pending reps/weight input values, marks all incomplete sets as completed, then completes workout
-  - **No:** deletes incomplete sets, then completes workout (only previously completed sets saved)
-- Prevents accidentally submitting a workout with 0 logged data
+- If uncompleted sets exist, prompts:
+  - **Go Back** — returns to overview
+  - **No — Skip them** — deletes incomplete sets, then submits
+  - **Yes — Mark complete** — marks all incomplete sets as complete, then submits
+- On submit (new workout): batch DB write — workout record → `Promise.all(workout_exercises)` → `Promise.all(sets)`
+- On submit (edit mode, `session.workoutId` present): deletes existing sets + workout_exercises for that workout, re-inserts from session state, then updates the workout record
+- After submit: clears session context, navigates to MainTabs with `initialFocusDate` = workout date
 
-**Add Exercise Flow:**
-- "Add Exercise" button navigates to ExerciseSearch with `existingWorkoutId` param
-- ExerciseSearch pre-populates header panel with all current workout exercises (locked — cannot be removed)
-- User selects additional exercises; can reorder them in the header panel via drag handles
-- On "Add": filters to only newly selected exercises (pre-existing ones excluded); inserts in the reordered sequence with `sort_order` starting from current exercise count (new exercises always append after existing ones); navigates back to Active Workout
+**Cancel Workout:**
+- Shows "Are you sure?" confirmation
+- On confirm: calls `clearSession()`, navigates to MainTabs
 
-**Cancel/Leave Behavior:**
-- Tapping Cancel or navigating away shows confirmation dialog
-- Confirming deletes the in-progress workout entirely (no draft saved)
+### 8. Exercise View
 
-**Behavior:**
-- Swipe to delete sets
-- Complete button disabled until sets added
+**Purpose:** Log sets for a single exercise within a session
 
-### 8. Workout Summary
+**Header:**
+- X (close) icon (top-left) → returns to Workout Overview
+- Trash icon + info icon (top-right); trash shows confirm alert → calls `removeExercise()` → navigates to Workout Overview; info is placeholder (no action)
+- Exercise name (large, left-aligned, bold, 26px) + muscle group subtitle
+- Equipment dropdown: pill button below name; tapping opens an inline dropdown rendered directly below the button (not a modal); selector pill's bottom corners flatten when open; shows only equipment types available for that exercise (fetched from `exercises.equipment[]` on mount); selected option has checkmark; tapping an option calls `updateExerciseEquipment()` and closes the dropdown
+- "Previous best: X reps × Y lbs" shown below equipment when available
+
+**Sets Table:**
+- Columns: Set# | Reps | Lbs | ✓
+- ✓ header button: `TouchableOpacity` that calls `markAllSetsComplete()` — marks every set for the exercise as complete
+- Reps and weight are free-text inputs (numeric keyboard)
+- On blur: if both reps and weight are filled and the set is not yet complete, auto-marks it complete (`toggleSetComplete`)
+- On focus: if the set is already complete, unchecks it (`toggleSetComplete`) so the user can edit freely
+- ✓ cell: tapping manually toggles `is_completed`; completed sets show a filled dark box with white ✓; incomplete sets show a faint ✓
+- Swipe row left to reveal Delete action (red, removes set from context)
+- `KeyboardAvoidingView` keeps inputs visible when keyboard is open
+
+**"+ Add Set" Button:**
+- Adds a new set row to the exercise in context
+- Auto-completes the previous set (marks `is_completed = true`) before adding new row
+
+**Footer:**
+- Light `#F0F0F0` rounded-top panel (same pattern as Workout Overview)
+- Optional "← Prev" button (shown when not on the first exercise)
+- "Next Exercise" (navigates to next exercise via `navigation.replace`) or "Back to Overview" (when on last exercise)
+- Exercise-to-exercise navigation uses `navigation.replace` to avoid stacking history
+
+**Set Pre-Population:**
+- *Template workout*: N sets pre-created per exercise from `proposed_sets`; reps pre-filled from `proposed_reps_min`; weight pre-filled from previous best via `loadPreviousSets` RPC
+- *Custom/manual workout*: 1 set pre-created per exercise; reps + weight pre-filled from previous best
+- *Add Set*: new row inherits no pre-fill (blank inputs)
+
+### 9. Workout Summary
 
 **Purpose:** View completed workout stats
 
@@ -407,7 +418,7 @@ The goal: always show the relevant month label at the bottom of the visible area
 **Header:**
 - Date line with "(Today)" suffix if current day (e.g., "March 6th (Today)")
 - Workout name as large bold title below date, with action icons on same row:
-  - Edit icon (`create-outline`, white) — reopens workout as active, navigates to ActiveWorkout
+  - Edit icon (`create-outline`, white) — calls `initSessionFromExisting()` with workout's exercises and sets, navigates to WorkoutOverview
   - Delete icon (`trash-outline`, red) — confirms then permanently deletes workout + all exercises + sets; refreshes calendar
 
 **Stats Section:**
@@ -436,19 +447,19 @@ The goal: always show the relevant month label at the bottom of the visible area
 
 **Duplicate Sheet Button:**
 - Shows for past completed workouts only
-- Creates new workout for today with same exercises (no sets)
-- Navigates to Active Workout screen
+- Calls `initSession()` with today's date and exercises from the past workout
+- Navigates to Workout Overview (local-first — no DB record created yet)
 
 **Components Used:**
 - `ExerciseSummaryCard` — Accordion exercise card with expand/collapse
 
-### 9. Exercise Library (Future)
+### 10. Exercise Library (Future)
 
 **Purpose:** Browse all exercises (read-only)
 
 **Status:** Placeholder in nav, content coming in later phase
 
-### 10. Profile
+### 11. Profile
 
 **Purpose:** User settings and stats
 
@@ -456,7 +467,7 @@ The goal: always show the relevant month label at the bottom of the visible area
 
 **Future:** Historical workout summary, stats
 
-### 11. Exercise Detail
+### 12. Exercise Detail
 
 **Parent Level:**
 - Exercise name and description
@@ -508,21 +519,24 @@ Hammer Curl 3x10-12
 1. Sheets → Start Workout → "Select Exercises"
 2. Category Selection → pick category (e.g., Pull)
 3. Exercise Search (pre-filtered) → select exercises
-4. Start Workout → Active Workout Sheet
-5. Log sets → Complete Workout → Summary
+4. Start → `initSession()` → Workout Overview
+5. Tap exercise → Exercise View → log sets
+6. Complete Workout → batch DB write → Summary
 
 ### Template Workout
 1. Sheets → Start Workout → "Upload Template"
 2. Paste template → Submit
 3. Exercise Search with pre-selected exercises + category
-4. Modify if needed → Start Workout
-5. Active Workout Sheet → Complete → Summary
+4. Modify if needed → Start → `initSession()` → Workout Overview
+5. Tap exercise → Exercise View → log sets
+6. Complete Workout → batch DB write → Summary
 
 ### Duplicate Past Workout
 1. Calendar Panel → tap past date
 2. Workout Summary → "Duplicate Sheet"
-3. Exercise Search with exercises pre-selected
-4. Modify if needed → Start Workout
+3. `initSession()` → Workout Overview (no DB record yet)
+4. Tap exercise → Exercise View → log sets
+5. Complete Workout → batch DB write → Summary
 
 ---
 
@@ -575,14 +589,14 @@ Auto-detected when weight × reps exceeds previous best for that exercise variat
   - [x] Drag-to-reorder selected exercises (hamburger handle, RN responder system)
   - [ ] Exercise images (deferred)
   - [ ] Info icon / Exercise Detail link (deferred)
-- [x] Active Workout Sheet redesign
-  - [x] WorkoutHeader (shared with ExerciseSearch)
-  - [x] Flat exercise list (stages removed)
-  - [x] Edit workout title (pencil → modal → DB save)
-  - [x] Trash icon per exercise (delete exercise + sets)
-  - [x] Add Exercise button → ExerciseSearch add-to-existing flow
-  - [x] Flex column widths (full card width)
-  - [x] Local input state + onBlur DB save (no per-keystroke reload)
+- [x] Active Workout redesign (local-first, two-screen)
+  - [x] WorkoutSessionContext — local-first session state
+  - [x] WorkoutOverviewScreen — exercise list, add/remove, complete, cancel
+  - [x] ExerciseViewScreen — per-exercise set logging, prev/next nav, swipe-delete
+  - [x] Batch DB write on Complete Workout
+  - [x] Incomplete sets dialog (Go Back / Skip / Mark complete)
+  - [ ] Auto-complete previous set when moving to next input (deferred)
+  - [ ] Set logging interaction refinement (deferred)
 - [ ] Exercise library screen
 - [ ] PR detection in UI
 - [ ] Profile stats
@@ -618,13 +632,22 @@ Auto-detected when weight × reps exceeds previous best for that exercise variat
 | Start Workout entry | Single button → panel with manual/upload options |
 | Bottom nav | 4 items (Sheets, Start Workout, Exercise Library, Profile) |
 | Stages in UI | Removed — `workout_stages` table dropped; `stage_id` set to `null` on workout_exercises |
-| Cancel/leave Active Workout | Shows confirmation dialog; confirming deletes the workout entirely (no draft state) |
+| Cancel/leave Active Workout | Shows confirmation dialog; confirming calls `clearSession()` — no DB cleanup needed (local-first) |
+| Active workout data persistence | Local-first: all session state in React Context; DB write only on Complete Workout |
+| Active workout crash risk | Accepted — crash mid-session loses unsaved data; no background persistence in v1 |
+| Active workout redesign | Split into two screens: Workout Overview (exercise list) + Exercise View (per-exercise logging) |
+| Dev build variant | EAS dev profile with `APP_VARIANT=development`; separate bundle ID + app name; runs alongside production app |
 | Equipment storage | `text[]` on `exercises` table — no separate `exercise_variations` table |
 | Template flow | Skips TemplatePreview; goes directly to ExerciseSearch with pre-selections |
 | Categories in template | Not required to match DB categories — used as workout name only |
 | WorkoutSummaryScreen | Removed — summary is the inline sheet view on HomeScreen |
 | Post-workout navigation | `navigation.reset` to MainTabs with `initialFocusDate` = workout date |
 | Template weight pre-fill | Skipped when `proposed_reps_min` is set; reps from template, weight left blank |
+| Equipment dropdown in Exercise View | Inline dropdown rendered below the pill button (not a modal/bottom sheet); fetched per-exercise from `exercises.equipment[]` |
+| Set auto-complete | On blur: auto-marks complete when both reps + weight filled; on focus: unchecks if already complete so user can edit |
+| Edit workout submit | Delete existing sets + workout_exercises, re-insert from session state, update workout record — cleaner than per-row upserts |
+| Workout Overview exercise delete | Swipe-to-delete (Swipeable) on exercise rows; hamburger icon reserved for drag-to-reorder |
+| Exercise View exercise delete | Trash icon in header row triggers confirm alert → removeExercise → navigate to WorkoutOverview |
 
 ---
 
@@ -649,6 +672,7 @@ Actual database columns (not legacy names):
 - `StatRow` — Label/value row for stats display
 - `ExerciseSummaryCard` — Accordion exercise card for completed workout summary
 - `WorkoutHeader` — Dark panel shared across ExerciseSearch and ActiveWorkout; supports editable name (pencil → modal), subtitle, expandable selected exercises list; Cancel button on left, Start/Save on right (drag handle bar, PanResponder), drag-to-reorder per row (RN responder system, `onReorderItems` prop), optional Start/Add button (green pill) + Cancel button (red pill); `startLabel` prop overrides button text
+- `WorkoutSessionContext` — React Context holding all in-session state; initialized by `initSession()`; consumed by WorkoutOverview and ExerciseView; cleared by `clearSession()` after submit or cancel; `loadPreviousSets()` calls `get_previous_workout_sets` RPC per exercise in parallel and pre-fills weight
 
 ---
 

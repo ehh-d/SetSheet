@@ -42,7 +42,25 @@ export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 open -a Simulator
 ```
 
-Physical device auto-connects if previously paired to a running Metro server.
+### Physical Device (SetSheet Dev build)
+
+The dev client app does not auto-connect — it requires a server URL or QR code.
+
+**Normal (same WiFi):** Run Metro from your terminal and enter `exp://192.168.x.x:8081` in the dev client manually.
+
+**If the phone can't reach the Mac's IP** (network restriction / firewall): use tunnel mode. Run from your terminal:
+```bash
+NODE_PATH=/opt/homebrew/lib/node_modules npx expo start --tunnel
+```
+This installs `@expo/ngrok` on first run (say yes), then provides a public `exp://...` URL and QR code that works over any network.
+
+**For Claude to read Metro logs:** pipe output to a file:
+```bash
+NODE_PATH=/opt/homebrew/lib/node_modules npx expo start --tunnel 2>&1 | tee /tmp/metro.log
+```
+Claude can then `cat /tmp/metro.log` to see errors.
+
+> **Issue to raise:** If a physical device shows "Failed to connect to exp://[local-IP]:8081", the local network is blocking the connection. Switch to `--tunnel` mode immediately.
 
 ---
 

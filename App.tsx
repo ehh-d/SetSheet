@@ -6,6 +6,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { WorkoutSessionProvider } from './contexts/WorkoutSessionContext';
 import { RootStackParamList, MainTabParamList } from './types';
 
 // Screens
@@ -13,9 +14,9 @@ import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
 import CategorySelectionScreen from './screens/CategorySelectionScreen';
 import ExerciseSearchScreen from './screens/ExerciseSearchScreen';
-import ActiveWorkoutScreen from './screens/ActiveWorkoutScreen';
+import WorkoutOverviewScreen from './screens/WorkoutOverviewScreen';
+import ExerciseViewScreen from './screens/ExerciseViewScreen';
 import UploadTemplateScreen from './screens/UploadTemplateScreen';
-import TemplatePreviewScreen from './screens/TemplatePreviewScreen';
 import ExerciseLibraryScreen from './screens/ExerciseLibraryScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import StartWorkoutScreen from './screens/StartWorkoutScreen';
@@ -109,9 +110,9 @@ function Navigation() {
           <Stack.Screen name="StartWorkout" component={StartWorkoutScreen} options={{ gestureEnabled: false }} />
           <Stack.Screen name="CategorySelection" component={CategorySelectionScreen} options={{ gestureEnabled: false }} />
           <Stack.Screen name="ExerciseSearch" component={ExerciseSearchScreen} options={{ gestureEnabled: false }} />
-          <Stack.Screen name="ActiveWorkout" component={ActiveWorkoutScreen} options={{ gestureEnabled: false }} />
+          <Stack.Screen name="WorkoutOverview" component={WorkoutOverviewScreen} options={{ gestureEnabled: false }} />
+          <Stack.Screen name="ExerciseView" component={ExerciseViewScreen} options={{ gestureEnabled: false }} />
           <Stack.Screen name="UploadTemplate" component={UploadTemplateScreen} options={{ gestureEnabled: false }} />
-          <Stack.Screen name="TemplatePreview" component={TemplatePreviewScreen} options={{ gestureEnabled: false }} />
         </Stack.Navigator>
       )}
     </NavigationContainer>
@@ -122,8 +123,10 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
-        <StatusBar style="light" />
-        <Navigation />
+        <WorkoutSessionProvider>
+          <StatusBar style="light" />
+          <Navigation />
+        </WorkoutSessionProvider>
       </AuthProvider>
     </GestureHandlerRootView>
   );

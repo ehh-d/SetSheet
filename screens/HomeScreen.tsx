@@ -14,6 +14,7 @@ import { format, parseISO, isSameDay, addDays, subDays } from 'date-fns';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
+import { useWorkoutSession } from '../contexts/WorkoutSessionContext';
 import { supabase } from '../lib/supabase';
 import { Workout, WorkoutExerciseWithDetails, WorkoutStage } from '../types';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -65,6 +66,7 @@ const DatePage = React.memo(function DatePage({
   const [sheet, setSheet] = useState<WorkoutWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const hasLoadedRef = useRef(false);
+  const { initSession, initSessionFromExisting } = useWorkoutSession();
 
   const isPastDate = !isSameDay(date, new Date()) && date < new Date();
   const isToday = isSameDay(date, new Date());
@@ -159,14 +161,37 @@ const DatePage = React.memo(function DatePage({
     );
   };
 
-  const handleEditWorkout = async () => {
-    if (!sheet) return;
-    try {
-      await supabase.from('workouts').update({ status: 'active' } as any).eq('id', sheet.id);
-      navigation.navigate('ActiveWorkout', { workoutId: sheet.id });
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to reopen workout');
-    }
+  const handleEditWorkout = () => {
+    if (!sheet || !sheet.workout_exercises) return;
+    const exercises = [...sheet.workout_exercises]
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      .map(ex => ({
+        exerciseId: ex.exercise_id,
+        exerciseName: ex.exercises?.name ?? '',
+        equipment: ex.equipment ?? '',
+        muscleGroup: ex.exercises?.muscle_group ?? '',
+        sort_order: ex.sort_order ?? 0,
+        sets: (ex.sets ?? [])
+          .sort((a, b) => (a.set_number ?? 0) - (b.set_number ?? 0))
+          .map(s => ({
+            set_number: s.set_number,
+            reps: s.reps ?? null,
+            weight: s.weight ?? null,
+            is_completed: s.is_completed ?? false,
+          })),
+      }));
+    initSessionFromExisting({
+      workoutId: sheet.id,
+      date: sheet.workout_date,
+      workoutName: sheet.name ?? 'Workout',
+      categoryId: sheet.category_id ?? null,
+      exercises,
+    });
+    navigation.navigate('WorkoutOverview', {
+      date: sheet.workout_date,
+      workoutName: sheet.name ?? 'Workout',
+      categoryId: sheet.category_id ?? '',
+    });
   };
 
   if (loading) {
@@ -209,7 +234,7 @@ const DatePage = React.memo(function DatePage({
         </Text>
         <TouchableOpacity
           style={styles.viewButton}
-          onPress={() => navigation.navigate('ActiveWorkout', { workoutId: sheet.id })}
+          onPress={handleEditWorkout}
         >
           <Text style={styles.viewButtonText}>Continue Sheet</Text>
         </TouchableOpacity>
@@ -311,56 +336,37 @@ const DatePage = React.memo(function DatePage({
             onPress={async () => {
               if (!session?.user || !sheet.workout_exercises) return;
               const todayStr = format(new Date(), 'yyyy-MM-dd');
-              try {
-                const { data: existing } = await supabase
-                  .from('workouts')
-                  .select('id, status')
-                  .eq('user_id', session.user.id)
-                  .eq('workout_date', todayStr)
-                  .maybeSingle();
-                if (existing) {
-                  Alert.alert('Workout Exists', 'You already have a workout for today.');
-                  return;
-                }
-                const { data: newWorkout, error: workoutErr } = await supabase
-                  .from('workouts')
-                  .insert({
-                    user_id: session.user.id,
-                    workout_date: todayStr,
-                    name: sheet.name,
-                    category_id: sheet.category_id,
-                    status: 'active',
-                  })
-                  .select()
-                  .single();
-                if (workoutErr || !newWorkout) throw workoutErr || new Error('Failed to create workout');
-                for (const ex of sheet.workout_exercises) {
-                  const { data: newEx } = await supabase
-                    .from('workout_exercises')
-                    .insert({
-                      workout_id: newWorkout.id,
-                      exercise_id: ex.exercise_id,
-                      equipment: ex.equipment,
-                      sort_order: ex.sort_order,
-                    })
-                    .select()
-                    .single();
-                  if (newEx) {
-                    const completedSets = ex.sets.filter(s => s.is_completed);
-                    for (let i = 0; i < (completedSets.length || 1); i++) {
-                      await supabase.from('sets').insert({
-                        workout_exercise_id: newEx.id,
-                        set_number: i + 1,
-                        is_completed: false,
-                      });
-                    }
-                  }
-                }
-                Alert.alert('Success', 'Workout duplicated to today!');
-                onCalendarRefresh();
-              } catch (err: any) {
-                Alert.alert('Error', err.message || 'Failed to duplicate');
+              const { data: existing } = await supabase
+                .from('workouts')
+                .select('id')
+                .eq('user_id', session.user.id)
+                .eq('workout_date', todayStr)
+                .maybeSingle();
+              if (existing) {
+                Alert.alert('Workout Exists', 'You already have a workout for today.');
+                return;
               }
+              const exercises = [...sheet.workout_exercises]
+                .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+                .map(ex => ({
+                  exerciseId: ex.exercise_id,
+                  exerciseName: ex.exercises?.name ?? '',
+                  equipment: ex.equipment ?? '',
+                  muscleGroup: ex.exercises?.muscle_group ?? '',
+                  proposedSets: ex.sets.filter(s => s.is_completed).length || 1,
+                  proposedRepsMin: null,
+                }));
+              initSession({
+                date: todayStr,
+                workoutName: sheet.name ?? 'Workout',
+                categoryId: sheet.category_id ?? null,
+                exercises,
+              });
+              navigation.navigate('WorkoutOverview', {
+                date: todayStr,
+                workoutName: sheet.name ?? 'Workout',
+                categoryId: sheet.category_id ?? '',
+              });
             }}
             activeOpacity={0.7}
           >
@@ -693,7 +699,7 @@ const styles = StyleSheet.create({
   duplicateButtonText: {
     fontSize: 18,
     fontWeight: '500',
-    color: '#313131',
+    color: '#FFFFFF',
     lineHeight: 24,
     textAlign: 'center',
   },

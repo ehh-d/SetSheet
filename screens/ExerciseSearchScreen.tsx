@@ -25,6 +25,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { WorkoutHeader, WorkoutHeaderHandle } from '../components/WorkoutHeader';
+import { useWorkoutSession } from '../contexts/WorkoutSessionContext';
 
 type ExerciseSearchNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -54,7 +55,7 @@ export default function ExerciseSearchScreen() {
   const { session } = useAuth();
   const insets = useSafeAreaInsets();
 
-  const { categoryId, categoryName, date, existingWorkoutId } = route.params;
+  const { categoryId, categoryName, date, addToSession } = route.params;
 
   const [year, month, day] = date.split('-').map(Number);
   const dateObj = new Date(year, month - 1, day);
@@ -83,6 +84,9 @@ export default function ExerciseSearchScreen() {
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(100);
   const [existingExerciseKeys, setExistingExerciseKeys] = useState<Set<string>>(new Set());
+  const [isStarting, setIsStarting] = useState(false);
+
+  const { session: workoutSession, initSession, addExercises: addToSessionExercises } = useWorkoutSession();
 
   // Editable sheet name
   const [sheetName, setSheetName] = useState(categoryName || 'Workout');
@@ -143,17 +147,7 @@ export default function ExerciseSearchScreen() {
       supabase.from('categories').select('*').order('display_order'),
     ];
 
-    if (existingWorkoutId) {
-      promises.push(
-        supabase
-          .from('workout_exercises')
-          .select(`exercise_id, equipment, sort_order, exercises ( id, name, muscle_group )`)
-          .eq('workout_id', existingWorkoutId)
-          .order('sort_order')
-      );
-    }
-
-    const [exercisesResult, categoriesResult, existingResult] = await Promise.all(promises);
+    const [exercisesResult, categoriesResult] = await Promise.all(promises);
 
     if (!exercisesResult.error && exercisesResult.data) {
       setExercises(exercisesResult.data as Exercise[]);
@@ -161,14 +155,17 @@ export default function ExerciseSearchScreen() {
     if (!categoriesResult.error && categoriesResult.data) {
       setAllCategories(categoriesResult.data as Category[]);
     }
-    if (existingResult && !existingResult.error && existingResult.data) {
-      const existing = existingResult.data;
-      setExistingExerciseKeys(new Set(existing.map(we => getExerciseKey(we.exercise_id, we.equipment ?? ''))));
-      setSelectedExercises(existing.map(we => ({
-        exerciseId: we.exercise_id,
-        exerciseName: we.exercises.name,
-        equipment: we.equipment ?? '',
-        muscleGroup: we.exercises.muscle_group,
+
+    // addToSession mode: pre-populate from live session context
+    if (addToSession && workoutSession) {
+      const sessionExercises = workoutSession.exercises;
+      const keys = new Set(sessionExercises.map(ex => getExerciseKey(ex.exerciseId, ex.equipment)));
+      setExistingExerciseKeys(keys);
+      setSelectedExercises(sessionExercises.map(ex => ({
+        exerciseId: ex.exerciseId,
+        exerciseName: ex.exerciseName,
+        equipment: ex.equipment,
+        muscleGroup: ex.muscleGroup,
       })));
     }
 
@@ -268,156 +265,60 @@ export default function ExerciseSearchScreen() {
     setIsEditNameVisible(false);
   };
 
-  const handleStartWorkout = async () => {
+  const handleStartWorkout = () => {
     if (selectedExercises.length === 0) {
       Alert.alert('No Exercises', 'Please select at least one exercise');
       return;
     }
+    if (isStarting) return;
+    setIsStarting(true);
 
-    if (!session?.user) return;
-
-    try {
-      const { data: existingWorkouts } = await supabase
-        .from('workouts')
-        .select('id, status')
-        .eq('user_id', session.user.id)
-        .eq('workout_date', date);
-
-      if (existingWorkouts && existingWorkouts.length > 0) {
-        const existingWorkout = existingWorkouts[0];
-
-        if (existingWorkout.status === 'completed') {
-          Alert.alert(
-            'Workout Already Exists',
-            'You already have a completed workout for this date.',
-            [{ text: 'OK', style: 'cancel' }]
-          );
-          return;
-        } else if (existingWorkout.status === 'active') {
-          Alert.alert(
-            'Workout In Progress',
-            'You have an active workout for this date.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Continue Workout', onPress: () => navigation.navigate('ActiveWorkout', { workoutId: existingWorkout.id }) }
-            ]
-          );
-          return;
-        }
-      }
-
-      const { data: workout, error: workoutError } = await supabase
-        .from('workouts')
-        .insert({
-          user_id: session.user.id,
-          workout_date: date,
-          category_id: categoryId || null,
-          name: sheetName,
-          status: 'active',
-        })
-        .select()
-        .single();
-
-      if (workoutError) throw workoutError;
-      if (!workout) throw new Error('Workout creation failed');
-
-      for (let i = 0; i < selectedExercises.length; i++) {
-        const ex = selectedExercises[i];
-        const setCount = ex.proposedSets ?? 1;
-        const repsMin = ex.proposedRepsMin ?? null;
-
-        const { data: we, error: weError } = await supabase
-          .from('workout_exercises')
-          .insert({
-            workout_id: workout.id,
-            exercise_id: ex.exerciseId,
-            equipment: ex.equipment,
-            sort_order: i,
-            proposed_sets: setCount,
-            proposed_reps_min: repsMin,
-            proposed_reps_max: repsMin,
-          })
-          .select('id')
-          .single();
-
-        if (weError) throw weError;
-        if (!we) continue;
-
-        const setRows = Array.from({ length: setCount }, (_, idx) => ({
-          workout_exercise_id: we.id,
-          set_number: idx + 1,
-          reps: repsMin,
-          weight: null,
-          is_completed: false,
-        }));
-        await supabase.from('sets').insert(setRows);
-      }
-
-      navigation.navigate('ActiveWorkout', { workoutId: workout.id });
-    } catch (error: any) {
-      Alert.alert('Error', error.message);
-    }
-  };
-
-  const handleAddToWorkout = async () => {
-    if (selectedExercises.length === 0) {
-      Alert.alert('No Exercises', 'Please select at least one exercise');
-      return;
-    }
-    if (!existingWorkoutId) return;
-
-    try {
-      const newExercises = selectedExercises.filter(
-        ex => !existingExerciseKeys.has(getExerciseKey(ex.exerciseId, ex.equipment))
-      );
-
-      if (newExercises.length === 0) {
-        navigation.navigate('ActiveWorkout', { workoutId: existingWorkoutId });
-        return;
-      }
-
-      // Use each exercise's index in the full panel order as its sort_order
-      const newWorkoutExercises = newExercises.map((ex) => ({
-        workout_id: existingWorkoutId,
-        stage_id: null,
-        exercise_id: ex.exerciseId,
+    initSession({
+      date,
+      workoutName: sheetName,
+      categoryId: categoryId || null,
+      exercises: selectedExercises.map(ex => ({
+        exerciseId: ex.exerciseId,
+        exerciseName: ex.exerciseName,
         equipment: ex.equipment,
-        sort_order: selectedExercises.findIndex(
-          s => s.exerciseId === ex.exerciseId && s.equipment === ex.equipment
-        ),
-        proposed_sets: 3,
-        proposed_reps_min: 8,
-        proposed_reps_max: 12,
-      }));
+        muscleGroup: ex.muscleGroup,
+        proposedSets: ex.proposedSets,
+        proposedRepsMin: ex.proposedRepsMin,
+      })),
+    });
 
-      // Update sort_order for existing exercises to reflect panel reorder
-      const existingUpdates = selectedExercises
-        .filter(ex => existingExerciseKeys.has(getExerciseKey(ex.exerciseId, ex.equipment)))
-        .map((ex) => ({
-          exerciseId: ex.exerciseId,
-          equipment: ex.equipment,
-          sort_order: selectedExercises.findIndex(
-            s => s.exerciseId === ex.exerciseId && s.equipment === ex.equipment
-          ),
-        }));
-
-      await Promise.all([
-        supabase.from('workout_exercises').insert(newWorkoutExercises),
-        ...existingUpdates.map(({ exerciseId, equipment, sort_order }) =>
-          supabase
-            .from('workout_exercises')
-            .update({ sort_order })
-            .eq('workout_id', existingWorkoutId)
-            .eq('exercise_id', exerciseId)
-            .eq('equipment', equipment)
-        ),
-      ]);
-
-      navigation.navigate('ActiveWorkout', { workoutId: existingWorkoutId });
-    } catch (error: any) {
-      Alert.alert('Error', error.message);
-    }
+    navigation.navigate('WorkoutOverview', {
+      date,
+      workoutName: sheetName,
+      categoryId: categoryId || '',
+    });
   };
+
+  const handleAddToSession = () => {
+    if (!workoutSession) return;
+    const existingKeys = new Set(
+      workoutSession.exercises.map(ex => `${ex.exerciseId}::${ex.equipment}`)
+    );
+    const newExercises = selectedExercises.filter(
+      ex => !existingKeys.has(`${ex.exerciseId}::${ex.equipment}`)
+    );
+    if (newExercises.length > 0) {
+      addToSessionExercises(newExercises.map(ex => ({
+        exerciseId: ex.exerciseId,
+        exerciseName: ex.exerciseName,
+        equipment: ex.equipment,
+        muscleGroup: ex.muscleGroup,
+        proposedSets: ex.proposedSets,
+        proposedRepsMin: ex.proposedRepsMin,
+      })));
+    }
+    navigation.navigate('WorkoutOverview', {
+      date: workoutSession.date,
+      workoutName: workoutSession.workoutName,
+      categoryId: workoutSession.categoryId || '',
+    });
+  };
+
 
   const filteredExercises = getFilteredExercises();
 
@@ -442,8 +343,8 @@ export default function ExerciseSearchScreen() {
         workoutName={sheetName}
         subtitle={`${selectedExercises.length} Exercises Selected`}
         onCancel={() => navigation.goBack()}
-        onStart={selectedExercises.length > 0 ? (existingWorkoutId ? handleAddToWorkout : handleStartWorkout) : undefined}
-        startLabel={existingWorkoutId ? 'Save' : 'Start'}
+        onStart={selectedExercises.length > 0 ? (addToSession ? handleAddToSession : handleStartWorkout) : undefined}
+        startLabel={addToSession ? 'Add' : (isStarting ? 'Starting…' : 'Start')}
         onEditName={openEditName}
         selectedItems={selectedExercises.map(ex => ({
           variationId: getExerciseKey(ex.exerciseId, ex.equipment),
