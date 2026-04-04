@@ -33,7 +33,7 @@ module.exports = {
     web: {
       favicon: './assets/favicon.png',
     },
-    plugins: ['expo-secure-store'],
+    plugins: ['expo-secure-store', 'react-native-reanimated'],
     extra: {
       eas: {
         projectId: '16e35b36-7269-45b7-b41a-6f26a1f157e5',
