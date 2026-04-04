@@ -4,6 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { WorkoutSessionProvider } from './contexts/WorkoutSessionContext';
@@ -122,12 +123,14 @@ function Navigation() {
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <AuthProvider>
-        <WorkoutSessionProvider>
-          <StatusBar style="light" />
-          <Navigation />
-        </WorkoutSessionProvider>
-      </AuthProvider>
+      <KeyboardProvider>
+        <AuthProvider>
+          <WorkoutSessionProvider>
+            <StatusBar style="light" />
+            <Navigation />
+          </WorkoutSessionProvider>
+        </AuthProvider>
+      </KeyboardProvider>
     </GestureHandlerRootView>
   );
 }

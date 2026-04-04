@@ -5,12 +5,15 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
   Platform,
   TextInput,
+  InputAccessoryView,
+  Keyboard,
   Alert,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+
+const INPUT_ACCESSORY_ID = 'exercise-inputs';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -122,10 +125,7 @@ export default function ExerciseViewScreen() {
   );
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
+    <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerRow}>
@@ -210,10 +210,11 @@ export default function ExerciseViewScreen() {
       </View>
 
       {/* Sets */}
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scrollView}
         contentContainerStyle={{ paddingBottom: 16 }}
         keyboardShouldPersistTaps="handled"
+        bottomOffset={20}
       >
         {/* Table header */}
         <View style={styles.tableHeader}>
@@ -248,7 +249,7 @@ export default function ExerciseViewScreen() {
                 keyboardType="numeric"
                 placeholder="-"
                 placeholderTextColor="#555"
-                returnKeyType="next"
+                inputAccessoryViewID={INPUT_ACCESSORY_ID}
               />
 
               <TextInput
@@ -260,7 +261,7 @@ export default function ExerciseViewScreen() {
                 keyboardType="numeric"
                 placeholder="-"
                 placeholderTextColor="#555"
-                returnKeyType="done"
+                inputAccessoryViewID={INPUT_ACCESSORY_ID}
               />
 
               <TouchableOpacity
@@ -283,7 +284,7 @@ export default function ExerciseViewScreen() {
         <TouchableOpacity style={styles.addSetBtn} onPress={() => addSet(exercise.localId)}>
           <Text style={styles.addSetText}>+ Add Set</Text>
         </TouchableOpacity>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* Footer */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
@@ -309,12 +310,21 @@ export default function ExerciseViewScreen() {
         </TouchableOpacity>
       </View>
 
-    </KeyboardAvoidingView>
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView nativeID={INPUT_ACCESSORY_ID}>
+          <View style={styles.keyboardToolbar}>
+            <TouchableOpacity onPress={() => Keyboard.dismiss()}>
+              <Text style={styles.keyboardDoneBtn}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1A1A1A' },
+  container: { flex: 1, backgroundColor: '#1A1A1A', flexDirection: 'column' },
   header: {
     paddingHorizontal: 20,
     paddingBottom: 16,
@@ -450,4 +460,13 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   nextBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  keyboardToolbar: {
+    backgroundColor: '#1C1C1E',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: 'flex-end',
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+  },
+  keyboardDoneBtn: { color: '#0A84FF', fontSize: 16, fontWeight: '600' },
 });
