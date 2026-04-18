@@ -243,6 +243,12 @@ const DatePage = React.memo(function DatePage({
         >
           <Text style={styles.viewButtonText}>Continue Sheet</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.cancelSheetBtn}
+          onPress={handleDeleteWorkout}
+        >
+          <Text style={styles.cancelSheetText}>Cancel Workout</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -567,6 +573,15 @@ const styles = StyleSheet.create({
     color: '#1A1A1A',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  cancelSheetBtn: {
+    marginTop: 12,
+    paddingVertical: 8,
+  },
+  cancelSheetText: {
+    color: '#CC3333',
+    fontSize: 14,
+    fontWeight: '500',
   },
   // Completed workout styles
   completedWorkout: {
