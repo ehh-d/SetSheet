@@ -20,11 +20,15 @@ export function parseTemplate(text: string): ParsedTemplate {
 
   const exercisePattern = /^(.+?)\s*(?:\(([^)]+)\))?\s+(\d+)x(\d+)(?:-(\d+))?$/;
 
-  // Check if first line is a category header or an exercise
-  const firstLineClean = lines[0].trim().replace(/^[-•*]\s*/, '');
-  const firstLineIsExercise = exercisePattern.test(firstLineClean);
+  // If first line starts with #, it's the workout name
+  const firstLine = lines[0].trim();
+  const hasHashTitle = firstLine.startsWith('#');
+  const firstLineClean = firstLine.replace(/^[-•*]\s*/, '');
+  const firstLineIsExercise = !hasHashTitle && exercisePattern.test(firstLineClean);
 
-  const category = firstLineIsExercise ? 'Workout' : lines[0].trim();
+  const category = hasHashTitle
+    ? firstLine.replace(/^#+\s*/, '').trim()
+    : firstLineIsExercise ? 'Workout' : firstLine;
   const startIndex = firstLineIsExercise ? 0 : 1;
 
   const exercises: ParsedExercise[] = [];

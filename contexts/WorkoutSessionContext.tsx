@@ -11,6 +11,9 @@ export interface LocalSet {
   set_number: number;
   reps: string;
   weight: string;
+  duration: string;     // "M:SS" display string
+  distance: string;
+  distance_unit: string;
   is_completed: boolean;
 }
 
@@ -20,11 +23,12 @@ export interface SessionExercise {
   exerciseName: string;
   equipment: string;
   muscleGroup: string;
+  metric_type: string;
   proposedSets: number;
   proposedRepsMin: number | null;
   sort_order: number;
   sets: LocalSet[];
-  previousBest: { reps: number | null; weight: number | null } | null;
+  previousBest: { reps: number | null; weight: number | null; duration: number | null } | null;
 }
 
 export interface WorkoutSession {
@@ -40,6 +44,7 @@ interface InitExercise {
   exerciseName: string;
   equipment: string;
   muscleGroup: string;
+  metric_type?: string;
   proposedSets?: number;
   proposedRepsMin?: number | null;
 }
@@ -56,6 +61,7 @@ interface ExistingExercise {
   exerciseName: string;
   equipment: string;
   muscleGroup: string;
+  metric_type?: string;
   sort_order: number;
   sets: ExistingSet[];
 }
@@ -71,8 +77,10 @@ interface WorkoutSessionContextType {
   reorderExercises: (reordered: SessionExercise[]) => void;
   updateWorkoutName: (name: string) => void;
   updateExerciseEquipment: (exerciseLocalId: string, equipment: string) => void;
+  setExercisePreviousBest: (exerciseLocalId: string, previousBest: { reps: number | null; weight: number | null; duration: number | null } | null) => void;
   addSet: (exerciseLocalId: string) => void;
-  updateSetField: (exerciseLocalId: string, localSetId: string, field: 'reps' | 'weight', value: string) => void;
+  updateSetField: (exerciseLocalId: string, localSetId: string, field: 'reps' | 'weight' | 'duration' | 'distance', value: string) => void;
+  updateExerciseDistanceUnit: (exerciseLocalId: string, unit: string) => void;
   toggleSetComplete: (exerciseLocalId: string, localSetId: string) => void;
   markAllSetsComplete: (exerciseLocalId: string) => void;
   deleteSet: (exerciseLocalId: string, localSetId: string) => void;
@@ -86,6 +94,9 @@ function buildInitialSets(proposedSets: number, proposedRepsMin: number | null):
     set_number: i + 1,
     reps: proposedRepsMin != null ? proposedRepsMin.toString() : '',
     weight: '',
+    duration: '',
+    distance: '',
+    distance_unit: '',
     is_completed: false,
   }));
 }
@@ -99,6 +110,7 @@ function buildSessionExercise(ex: InitExercise, index: number): SessionExercise 
     exerciseName: ex.exerciseName,
     equipment: ex.equipment,
     muscleGroup: ex.muscleGroup,
+    metric_type: ex.metric_type ?? 'reps',
     proposedSets,
     proposedRepsMin,
     sort_order: index,
@@ -122,6 +134,7 @@ export function WorkoutSessionProvider({ children }: { children: React.ReactNode
       exerciseName: ex.exerciseName,
       equipment: ex.equipment,
       muscleGroup: ex.muscleGroup,
+      metric_type: ex.metric_type ?? 'reps',
       proposedSets: ex.sets.length || 1,
       proposedRepsMin: null,
       sort_order: ex.sort_order,
@@ -131,6 +144,9 @@ export function WorkoutSessionProvider({ children }: { children: React.ReactNode
         set_number: s.set_number ?? i + 1,
         reps: s.reps != null ? s.reps.toString() : '',
         weight: s.weight != null ? s.weight.toString() : '',
+        duration: '',
+        distance: '',
+        distance_unit: '',
         is_completed: s.is_completed,
       })),
     }));
@@ -142,11 +158,20 @@ export function WorkoutSessionProvider({ children }: { children: React.ReactNode
   const loadPreviousSets = useCallback(async (userId: string, exercises: SessionExercise[], date: string) => {
     const results = await Promise.all(
       exercises.map(ex =>
-        supabase.rpc('get_previous_workout_sets', {
-          p_user_id: userId,
-          p_exercise_id: ex.exerciseId,
-          p_before_date: date,
-        })
+        supabase
+          .from('sets')
+          .select(`
+            reps, weight, duration, distance, distance_unit,
+            workout_exercises!inner (
+              exercise_id, equipment,
+              workouts!inner ( user_id, workout_date, status )
+            )
+          `)
+          .eq('workout_exercises.exercise_id', ex.exerciseId)
+          .eq('workout_exercises.equipment', ex.equipment)
+          .eq('workout_exercises.workouts.user_id', userId)
+          .eq('workout_exercises.workouts.status', 'completed')
+          .lt('workout_exercises.workouts.workout_date', date)
       )
     );
 
@@ -155,10 +180,19 @@ export function WorkoutSessionProvider({ children }: { children: React.ReactNode
       const updatedExercises = prev.exercises.map((ex, i) => {
         const prevSets: any[] = results[i]?.data ?? [];
         const best = prevSets.reduce((acc: any, ps: any) => {
-          if (ps.weight != null && (acc == null || ps.weight > acc.weight)) return ps;
+          // Time exercises: longest duration wins
+          if (ps.duration != null) {
+            return acc == null || ps.duration > (acc.duration ?? 0) ? ps : acc;
+          }
+          // Reps/weight exercises: heaviest weight wins
+          if (ps.weight != null) {
+            return acc == null || ps.weight > (acc.weight ?? 0) ? ps : acc;
+          }
           return acc;
         }, null);
-        const previousBest = best ? { reps: best.reps ?? null, weight: best.weight ?? null } : null;
+        const previousBest = best
+          ? { reps: best.reps ?? null, weight: best.weight ?? null, duration: best.duration ?? null }
+          : null;
 
         // Pre-fill weight for manual workout sets that are still empty
         const updatedSets = ex.sets.map(s => ({
@@ -186,6 +220,18 @@ export function WorkoutSessionProvider({ children }: { children: React.ReactNode
         ...prev,
         exercises: prev.exercises.map(ex =>
           ex.localId === exerciseLocalId ? { ...ex, equipment } : ex
+        ),
+      };
+    });
+  }, []);
+
+  const setExercisePreviousBest = useCallback((exerciseLocalId: string, previousBest: { reps: number | null; weight: number | null; duration: number | null } | null) => {
+    setSession(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        exercises: prev.exercises.map(ex =>
+          ex.localId === exerciseLocalId ? { ...ex, previousBest } : ex
         ),
       };
     });
@@ -246,6 +292,9 @@ export function WorkoutSessionProvider({ children }: { children: React.ReactNode
             set_number: sorted.length + 1,
             reps: lastSet?.reps ?? '',
             weight: lastSet?.weight ?? '',
+            duration: '',
+            distance: '',
+            distance_unit: lastSet?.distance_unit ?? '',
             is_completed: false,
           };
           const updatedSets = ex.sets.map(s =>
@@ -293,6 +342,19 @@ export function WorkoutSessionProvider({ children }: { children: React.ReactNode
     });
   }, []);
 
+  const updateExerciseDistanceUnit = useCallback((exerciseLocalId: string, unit: string) => {
+    setSession(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        exercises: prev.exercises.map(ex => {
+          if (ex.localId !== exerciseLocalId) return ex;
+          return { ...ex, sets: ex.sets.map(s => ({ ...s, distance_unit: unit })) };
+        }),
+      };
+    });
+  }, []);
+
   const deleteSet = useCallback((exerciseLocalId: string, localSetId: string) => {
     setSession(prev => {
       if (!prev) return prev;
@@ -323,6 +385,8 @@ export function WorkoutSessionProvider({ children }: { children: React.ReactNode
         reorderExercises,
         updateWorkoutName,
         updateExerciseEquipment,
+        setExercisePreviousBest,
+        updateExerciseDistanceUnit,
         addSet,
         updateSetField,
         toggleSetComplete,

@@ -21,7 +21,9 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { useWorkoutSession } from '../contexts/WorkoutSessionContext';
+import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { getMetricConfig, secondsToMMSS, formatTimeInput } from '../utils/metricConfig';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'ExerciseView'>;
 type RoutePropType = RouteProp<RootStackParamList, 'ExerciseView'>;
@@ -31,19 +33,23 @@ export default function ExerciseViewScreen() {
   const route = useRoute<RoutePropType>();
   const insets = useSafeAreaInsets();
   const { exerciseLocalId } = route.params;
+  const { session: authSession } = useAuth();
   const {
     session,
     addSet,
     updateSetField,
+    updateExerciseDistanceUnit,
     toggleSetComplete,
     markAllSetsComplete,
     deleteSet,
     removeExercise,
     updateExerciseEquipment,
+    setExercisePreviousBest,
   } = useWorkoutSession();
 
   const [availableEquipment, setAvailableEquipment] = useState<string[]>([]);
   const [equipmentModalVisible, setEquipmentModalVisible] = useState(false);
+  const [defaultDistanceUnit, setDefaultDistanceUnit] = useState<string | null>(null);
 
   if (!session) return null;
 
@@ -59,13 +65,24 @@ export default function ExerciseViewScreen() {
   useEffect(() => {
     supabase
       .from('exercises')
-      .select('equipment')
+      .select('equipment, metric_type, default_distance_unit')
       .eq('id', exercise.exerciseId)
       .single()
       .then(({ data }) => {
         if (data?.equipment) setAvailableEquipment(data.equipment);
+        if (data?.default_distance_unit) setDefaultDistanceUnit(data.default_distance_unit);
       });
   }, [exercise.exerciseId]);
+
+  const metricType = exercise.metric_type ?? 'reps';
+  const config = getMetricConfig(metricType);
+
+  // Current distance unit: read from first set, fall back to default or first option
+  const currentDistanceUnit =
+    exercise.sets[0]?.distance_unit ||
+    defaultDistanceUnit ||
+    config.unitOptions[0] ||
+    '';
 
   const handleNext = () => {
     if (!hasNextExercise) {
@@ -99,13 +116,13 @@ export default function ExerciseViewScreen() {
   };
 
   const handleBlur = (set: any) => {
-    // Auto-complete when both reps and weight are filled
+    if (config.autoCompleteWhen.length === 0) return;
     const currentSet = session.exercises
       .find(ex => ex.localId === exerciseLocalId)
       ?.sets.find(s => s.localId === set.localId);
-    if (currentSet && currentSet.reps !== '' && currentSet.weight !== '' && !currentSet.is_completed) {
-      toggleSetComplete(exercise.localId, set.localId);
-    }
+    if (!currentSet || currentSet.is_completed) return;
+    const allFilled = config.autoCompleteWhen.every(field => currentSet[field] !== '');
+    if (allFilled) toggleSetComplete(exercise.localId, set.localId);
   };
 
   const handleFocus = (set: any) => {
@@ -126,6 +143,14 @@ export default function ExerciseViewScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Scrim — dims content when equipment dropdown is open */}
+      {equipmentModalVisible && (
+        <TouchableOpacity
+          style={styles.scrim}
+          activeOpacity={1}
+          onPress={() => setEquipmentModalVisible(false)}
+        />
+      )}
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerRow}>
@@ -158,8 +183,8 @@ export default function ExerciseViewScreen() {
           <Text style={styles.exerciseSub}>{exercise.muscleGroup}</Text>
         </View>
 
-        {/* Equipment selector */}
-        {availableEquipment.length > 0 && (
+        {/* Equipment selector — only when multiple variations exist */}
+        {availableEquipment.length > 1 && (
           <View style={styles.equipmentContainer}>
             <TouchableOpacity
               style={[
@@ -180,9 +205,35 @@ export default function ExerciseViewScreen() {
                       styles.equipmentOption,
                       i === availableEquipment.length - 1 && styles.equipmentOptionLast,
                     ]}
-                    onPress={() => {
+                    onPress={async () => {
                       updateExerciseEquipment(exercise.localId, eq);
                       setEquipmentModalVisible(false);
+                      // Re-fetch previous best for the newly selected equipment
+                      if (authSession?.user && session?.date) {
+                        const { data: prevSets } = await supabase
+                          .from('sets')
+                          .select(`
+                            reps, weight, duration,
+                            workout_exercises!inner (
+                              exercise_id, equipment,
+                              workouts!inner ( user_id, workout_date, status )
+                            )
+                          `)
+                          .eq('workout_exercises.exercise_id', exercise.exerciseId)
+                          .eq('workout_exercises.equipment', eq)
+                          .eq('workout_exercises.workouts.user_id', authSession.user.id)
+                          .eq('workout_exercises.workouts.status', 'completed')
+                          .lt('workout_exercises.workouts.workout_date', session.date);
+                        const best = (prevSets ?? []).reduce((acc: any, ps: any) => {
+                          if (ps.duration != null) return acc == null || ps.duration > (acc.duration ?? 0) ? ps : acc;
+                          if (ps.weight != null) return acc == null || ps.weight > (acc.weight ?? 0) ? ps : acc;
+                          return acc;
+                        }, null);
+                        setExercisePreviousBest(
+                          exercise.localId,
+                          best ? { reps: best.reps ?? null, weight: best.weight ?? null, duration: best.duration ?? null } : null
+                        );
+                      }
                     }}
                   >
                     <Text style={[
@@ -202,9 +253,14 @@ export default function ExerciseViewScreen() {
         )}
 
         {/* Previous best */}
-        {exercise.previousBest?.weight != null && (
+        {exercise.previousBest?.weight != null && metricType === 'reps' && (
           <Text style={styles.previousText}>
             Previous best: {exercise.previousBest.reps} reps × {exercise.previousBest.weight} lbs
+          </Text>
+        )}
+        {exercise.previousBest?.duration != null && metricType === 'time' && (
+          <Text style={styles.previousText}>
+            Previous best: {secondsToMMSS(exercise.previousBest.duration)}
           </Text>
         )}
       </View>
@@ -216,11 +272,32 @@ export default function ExerciseViewScreen() {
         keyboardShouldPersistTaps="handled"
         bottomOffset={20}
       >
+        {/* Distance unit selector (only for exercises that use distance) */}
+        {config.hasDistanceUnit && (
+          <View style={styles.unitSelectorRow}>
+            <Text style={styles.unitSelectorLabel}>Unit</Text>
+            <View style={styles.unitOptions}>
+              {config.unitOptions.map(u => (
+                <TouchableOpacity
+                  key={u}
+                  style={[styles.unitOption, currentDistanceUnit === u && styles.unitOptionActive]}
+                  onPress={() => updateExerciseDistanceUnit(exercise.localId, u)}
+                >
+                  <Text style={[styles.unitOptionText, currentDistanceUnit === u && styles.unitOptionTextActive]}>
+                    {u}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* Table header */}
         <View style={styles.tableHeader}>
           <Text style={[styles.tableHeaderText, styles.setNumCol]}>Set</Text>
-          <Text style={[styles.tableHeaderText, styles.inputCol]}>Reps</Text>
-          <Text style={[styles.tableHeaderText, styles.inputCol]}>Lbs</Text>
+          {config.fields.map(f => (
+            <Text key={f.key} style={[styles.tableHeaderText, styles.inputCol]}>{f.label}</Text>
+          ))}
           <TouchableOpacity
             style={styles.checkCol}
             onPress={() => markAllSetsComplete(exercise.localId)}
@@ -240,29 +317,23 @@ export default function ExerciseViewScreen() {
             <View style={styles.setRow}>
               <Text style={[styles.setNumber, styles.setNumCol]}>{set.set_number}</Text>
 
-              <TextInput
-                style={[styles.input, styles.inputCol]}
-                value={set.reps}
-                onChangeText={val => updateSetField(exercise.localId, set.localId, 'reps', val)}
-                onFocus={() => handleFocus(set)}
-                onBlur={() => handleBlur(set)}
-                keyboardType="numeric"
-                placeholder="-"
-                placeholderTextColor="#555"
-                inputAccessoryViewID={INPUT_ACCESSORY_ID}
-              />
-
-              <TextInput
-                style={[styles.input, styles.inputCol]}
-                value={set.weight}
-                onChangeText={val => updateSetField(exercise.localId, set.localId, 'weight', val)}
-                onFocus={() => handleFocus(set)}
-                onBlur={() => handleBlur(set)}
-                keyboardType="numeric"
-                placeholder="-"
-                placeholderTextColor="#555"
-                inputAccessoryViewID={INPUT_ACCESSORY_ID}
-              />
+              {config.fields.map(f => (
+                <TextInput
+                  key={f.key}
+                  style={[styles.input, styles.inputCol]}
+                  value={set[f.key]}
+                  onChangeText={val => {
+                    const formatted = f.isTimeInput ? formatTimeInput(val) : val;
+                    updateSetField(exercise.localId, set.localId, f.key, formatted);
+                  }}
+                  onFocus={() => handleFocus(set)}
+                  onBlur={() => handleBlur(set)}
+                  keyboardType="number-pad"
+                  placeholder={f.isTimeInput ? '00:00' : '-'}
+                  placeholderTextColor="#555"
+                  inputAccessoryViewID={INPUT_ACCESSORY_ID}
+                />
+              ))}
 
               <TouchableOpacity
                 style={[styles.checkCol, styles.checkBtn]}
@@ -340,7 +411,25 @@ const styles = StyleSheet.create({
   headerIcon: { marginLeft: 14 },
   exerciseName: { fontSize: 26, fontWeight: '700', color: '#FFF', marginBottom: 4 },
   exerciseSub: { fontSize: 14, color: '#888' },
-  equipmentContainer: { marginBottom: 10 },
+  unitSelectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    gap: 12,
+  },
+  unitSelectorLabel: { fontSize: 13, color: '#888', width: 30 },
+  unitOptions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  unitOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: '#262626',
+  },
+  unitOptionActive: { backgroundColor: '#FFF' },
+  unitOptionText: { fontSize: 13, color: '#888' },
+  unitOptionTextActive: { color: '#1A1A1A', fontWeight: '600' },
+  equipmentContainer: { marginBottom: 10, zIndex: 10 },
   equipmentSelector: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -356,10 +445,25 @@ const styles = StyleSheet.create({
   },
   equipmentText: { fontSize: 16, color: '#FFF', fontWeight: '600' },
   equipmentDropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
     backgroundColor: '#262626',
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
     overflow: 'hidden',
+    zIndex: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    zIndex: 9,
   },
   equipmentOption: {
     flexDirection: 'row',

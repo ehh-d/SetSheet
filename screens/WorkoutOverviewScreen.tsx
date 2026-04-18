@@ -21,6 +21,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { useWorkoutSession, SessionExercise } from '../contexts/WorkoutSessionContext';
+import { mmssToSeconds } from '../utils/metricConfig';
 import { supabase } from '../lib/supabase';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -73,19 +74,40 @@ export default function WorkoutOverviewScreen() {
     setIsEditNameVisible(false);
   };
 
+  const isEditMode = !!session?.workoutId;
+
   const handleCancel = () => {
-    Alert.alert('Cancel Workout', 'Are you sure? Your progress will be lost.', [
-      { text: 'Keep Going', style: 'cancel' },
-      {
-        text: 'Cancel Workout',
-        style: 'destructive',
-        onPress: () => {
-          clearSession();
-          navigation.navigate('MainTabs');
+    Alert.alert(
+      isEditMode ? 'Cancel Update' : 'Cancel Workout',
+      isEditMode ? 'Are you sure? Your changes will be lost.' : 'Are you sure? Your progress will be lost.',
+      [
+        { text: 'Keep Going', style: 'cancel' },
+        {
+          text: isEditMode ? 'Cancel Update' : 'Cancel Workout',
+          style: 'destructive',
+          onPress: () => {
+            clearSession();
+            navigation.navigate('MainTabs');
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
+
+  // Whether a single set has valid primary metric data (non-empty, non-zero)
+  const setHasValidData = (ex: any, s: any) => {
+    const validNum = (v: string) => v !== '' && parseFloat(v) !== 0 && !isNaN(parseFloat(v));
+    switch (ex.metric_type) {
+      case 'time':            return s.duration !== '';
+      case 'distance_weight': return validNum(s.distance);
+      case 'cardio':          return validNum(s.distance) || s.duration !== '';
+      case 'hybrid':          return validNum(s.reps) || s.duration !== '';
+      default:                return validNum(s.reps);
+    }
+  };
+
+  // Whether an exercise has at least one set with valid primary metric data
+  const exerciseHasData = (ex: any) => ex.sets.some((s: any) => setHasValidData(ex, s));
 
   // Ordered exercises accounting for active drag
   const orderedExercises = useMemo(() => {
@@ -210,8 +232,10 @@ export default function WorkoutOverviewScreen() {
         workoutId = workout.id;
       }
 
+      const exercisesToLog = session.exercises.filter(exerciseHasData);
+
       const weResults = await Promise.all(
-        session.exercises.map(ex =>
+        exercisesToLog.map(ex =>
           supabase
             .from('workout_exercises')
             .insert({
@@ -219,9 +243,6 @@ export default function WorkoutOverviewScreen() {
               exercise_id: ex.exerciseId,
               equipment: ex.equipment,
               sort_order: ex.sort_order,
-              proposed_sets: ex.proposedSets,
-              proposed_reps_min: ex.proposedRepsMin,
-              proposed_reps_max: ex.proposedRepsMin,
             })
             .select('id')
             .single()
@@ -229,12 +250,12 @@ export default function WorkoutOverviewScreen() {
       );
 
       const setInserts: Promise<any>[] = [];
-      session.exercises.forEach((ex, i) => {
+      exercisesToLog.forEach((ex, i) => {
         const weId = weResults[i]?.data?.id;
         if (!weId) return;
         const setsToLog = skipIncomplete
-          ? ex.sets.filter(s => s.is_completed)
-          : ex.sets;
+          ? ex.sets.filter(s => s.is_completed && setHasValidData(ex, s))
+          : ex.sets.filter(s => setHasValidData(ex, s));
         setsToLog.forEach(s => {
           setInserts.push(
             supabase.from('sets').insert({
@@ -242,6 +263,9 @@ export default function WorkoutOverviewScreen() {
               set_number: s.set_number,
               reps: s.reps === '' ? null : parseFloat(s.reps),
               weight: s.weight === '' ? null : parseFloat(s.weight),
+              duration: s.duration ? mmssToSeconds(s.duration) : null,
+              distance: s.distance === '' ? null : parseFloat(s.distance),
+              distance_unit: s.distance_unit || null,
               is_completed: true,
               completed_at: completedAt,
             })
@@ -264,17 +288,13 @@ export default function WorkoutOverviewScreen() {
     }
   };
 
-  const handleCompleteWorkout = () => {
+  const proceedToIncompleteCheck = () => {
     if (!session) return;
 
-    const hasAnySets = session.exercises.some(ex => ex.sets.length > 0);
-    if (!hasAnySets) {
-      Alert.alert('No Sets Logged', 'Add at least one set before completing.');
-      return;
-    }
-
+    // Only count sets that have valid primary metric data but aren't marked complete.
+    // Sets with missing primary metric are already handled (and will be dropped at save).
     const incompleteSets = session.exercises.flatMap(ex =>
-      ex.sets.filter(s => !s.is_completed)
+      ex.sets.filter(s => setHasValidData(ex, s) && !s.is_completed)
     );
 
     if (incompleteSets.length > 0) {
@@ -284,13 +304,44 @@ export default function WorkoutOverviewScreen() {
         [
           { text: 'Go Back', style: 'cancel' },
           { text: 'No — Skip them', onPress: () => submitWorkout(true) },
-          { text: 'Yes — Mark complete', onPress: () => submitWorkout(false) },
+          { text: isEditMode ? 'Yes — Save Update' : 'Yes — Mark complete', onPress: () => submitWorkout(false) },
         ]
       );
       return;
     }
 
     submitWorkout(false);
+  };
+
+  const handleCompleteWorkout = () => {
+    if (!session) return;
+
+    const hasAnySets = session.exercises.some(ex => ex.sets.length > 0);
+    if (!hasAnySets) {
+      Alert.alert('No Sets Logged', 'Add at least one set before completing.');
+      return;
+    }
+
+    const exercisesWithMissingSets = session.exercises.filter(ex =>
+      ex.sets.some(s => !setHasValidData(ex, s))
+    );
+    if (exercisesWithMissingSets.length > 0) {
+      const names = exercisesWithMissingSets.map(ex => {
+        const missingCount = ex.sets.filter(s => !setHasValidData(ex, s)).length;
+        return `  • ${ex.exerciseName} (${missingCount} set${missingCount > 1 ? 's' : ''})`;
+      }).join('\n');
+      Alert.alert(
+        'Missing Data',
+        `The following exercises have sets missing primary metric data. Those sets will not be stored:\n\n${names}`,
+        [
+          { text: 'Edit', style: 'cancel' },
+          { text: 'Remove & Continue', onPress: proceedToIncompleteCheck },
+        ]
+      );
+      return;
+    }
+
+    proceedToIncompleteCheck();
   };
 
   if (!session) {
@@ -403,11 +454,11 @@ export default function WorkoutOverviewScreen() {
           {isSubmitting ? (
             <ActivityIndicator color="#FFF" />
           ) : (
-            <Text style={styles.completeBtnText}>Complete Workout</Text>
+            <Text style={styles.completeBtnText}>{isEditMode ? 'Save Update' : 'Complete Workout'}</Text>
           )}
         </TouchableOpacity>
         <TouchableOpacity onPress={handleCancel} style={styles.cancelBtn}>
-          <Text style={styles.cancelBtnText}>Cancel Workout</Text>
+          <Text style={styles.cancelBtnText}>{isEditMode ? 'Cancel Update' : 'Cancel Workout'}</Text>
         </TouchableOpacity>
       </View>
 

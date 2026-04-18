@@ -20,24 +20,30 @@ export type Database = {
           created_at: string | null
           display_order: number
           id: string
+          is_accordion: boolean | null
           muscle_groups: string[] | null
           name: string
+          parent_id: string | null
         }
         Insert: {
           category_group: string
           created_at?: string | null
           display_order?: number
           id?: string
+          is_accordion?: boolean | null
           muscle_groups?: string[] | null
           name: string
+          parent_id?: string | null
         }
         Update: {
           category_group?: string
           created_at?: string | null
           display_order?: number
           id?: string
+          is_accordion?: boolean | null
           muscle_groups?: string[] | null
           name?: string
+          parent_id?: string | null
         }
         Relationships: []
       }
@@ -51,6 +57,8 @@ export type Database = {
           description: string | null
           equipment: string[] | null
           id: string
+          default_distance_unit: string | null
+          metric_type: string
           muscle_group: string
           name: string
           specific_muscles: string[] | null
@@ -62,9 +70,11 @@ export type Database = {
           category_ids?: string[] | null
           created_at?: string | null
           created_by?: string | null
+          default_distance_unit?: string | null
           description?: string | null
           equipment?: string[] | null
           id?: string
+          metric_type?: string
           muscle_group: string
           name: string
           specific_muscles?: string[] | null
@@ -76,9 +86,11 @@ export type Database = {
           category_ids?: string[] | null
           created_at?: string | null
           created_by?: string | null
+          default_distance_unit?: string | null
           description?: string | null
           equipment?: string[] | null
           id?: string
+          metric_type?: string
           muscle_group?: string
           name?: string
           specific_muscles?: string[] | null
@@ -180,6 +192,9 @@ export type Database = {
         Row: {
           completed_at: string | null
           created_at: string | null
+          distance: number | null
+          distance_unit: string | null
+          duration: number | null
           id: string
           is_completed: boolean | null
           is_pr: boolean | null
@@ -191,6 +206,9 @@ export type Database = {
         Insert: {
           completed_at?: string | null
           created_at?: string | null
+          distance?: number | null
+          distance_unit?: string | null
+          duration?: number | null
           id?: string
           is_completed?: boolean | null
           is_pr?: boolean | null
@@ -202,6 +220,9 @@ export type Database = {
         Update: {
           completed_at?: string | null
           created_at?: string | null
+          distance?: number | null
+          distance_unit?: string | null
+          duration?: number | null
           id?: string
           is_completed?: boolean | null
           is_pr?: boolean | null
@@ -226,10 +247,6 @@ export type Database = {
           equipment: string | null
           exercise_id: string
           id: string
-          proposed_reps_max: number | null
-          proposed_reps_min: number | null
-          proposed_sets: number | null
-          proposed_weight: number | null
           sort_order: number | null
           workout_id: string
         }
@@ -238,10 +255,6 @@ export type Database = {
           equipment?: string | null
           exercise_id: string
           id?: string
-          proposed_reps_max?: number | null
-          proposed_reps_min?: number | null
-          proposed_sets?: number | null
-          proposed_weight?: number | null
           sort_order?: number | null
           workout_id: string
         }
@@ -250,10 +263,6 @@ export type Database = {
           equipment?: string | null
           exercise_id?: string
           id?: string
-          proposed_reps_max?: number | null
-          proposed_reps_min?: number | null
-          proposed_sets?: number | null
-          proposed_weight?: number | null
           sort_order?: number | null
           workout_id?: string
         }

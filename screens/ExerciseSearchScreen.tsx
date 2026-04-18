@@ -38,6 +38,7 @@ interface SelectedExercise {
   exerciseName: string;
   equipment: string;
   muscleGroup: string;
+  metric_type: string;
   proposedSets?: number;
   proposedRepsMin?: number;
 }
@@ -82,6 +83,7 @@ export default function ExerciseSearchScreen() {
     return [{ id: categoryId, name: categoryName, category_group: '', created_at: null, muscle_groups: null }];
   });
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [expandedAccordionId, setExpandedAccordionId] = useState<string | null>(null);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(100);
   const [existingExerciseKeys, setExistingExerciseKeys] = useState<Set<string>>(new Set());
   const [isStarting, setIsStarting] = useState(false);
@@ -212,6 +214,24 @@ export default function ExerciseSearchScreen() {
     });
   };
 
+  const getChildren = (parentId: string) => allCategories.filter(c => c.parent_id === parentId);
+
+  const selectAllChildren = (parentId: string) => {
+    const children = getChildren(parentId);
+    const allSelected = children.every(c => activeCategories.some(a => a.id === c.id));
+    if (allSelected) {
+      setActiveCategories(prev => prev.filter(c => !children.some(ch => ch.id === c.id)));
+    } else {
+      setActiveCategories(prev => {
+        const existingIds = new Set(prev.map(c => c.id));
+        const toAdd = children.filter(c => !existingIds.has(c.id));
+        return [...prev, ...toAdd];
+      });
+    }
+  };
+
+  const topLevelCategories = allCategories.filter(c => !c.parent_id);
+
   const handleAddExercise = (exercise: Exercise, equipment?: string) => {
     const eq = equipment ?? exercise.equipment?.[0];
 
@@ -224,7 +244,9 @@ export default function ExerciseSearchScreen() {
       exerciseName: exercise.name,
       equipment: eq,
       muscleGroup: exercise.muscle_group,
+      metric_type: exercise.metric_type ?? 'reps',
     }]);
+    setExpandedExerciseId(null);
   };
 
   const handleRemoveExercise = (key: string) => {
@@ -282,6 +304,7 @@ export default function ExerciseSearchScreen() {
         exerciseName: ex.exerciseName,
         equipment: ex.equipment,
         muscleGroup: ex.muscleGroup,
+        metric_type: ex.metric_type,
         proposedSets: ex.proposedSets,
         proposedRepsMin: ex.proposedRepsMin,
       })),
@@ -292,6 +315,21 @@ export default function ExerciseSearchScreen() {
       workoutName: sheetName,
       categoryId: categoryId || '',
     });
+  };
+
+  const handleCancel = () => {
+    if (addToSession) {
+      navigation.goBack();
+      return;
+    }
+    Alert.alert(
+      'Cancel Workout',
+      "Are you sure you want to cancel? You'll be taken back to your sheets.",
+      [
+        { text: 'Keep Going', style: 'cancel' },
+        { text: 'Cancel Workout', style: 'destructive', onPress: () => navigation.navigate('MainTabs') },
+      ]
+    );
   };
 
   const handleAddToSession = () => {
@@ -342,7 +380,7 @@ export default function ExerciseSearchScreen() {
         ordinalDay={ordinalDay}
         workoutName={sheetName}
         subtitle={`${selectedExercises.length} Exercises Selected`}
-        onCancel={() => navigation.goBack()}
+        onCancel={handleCancel}
         onStart={selectedExercises.length > 0 ? (addToSession ? handleAddToSession : handleStartWorkout) : undefined}
         startLabel={addToSession ? 'Add' : (isStarting ? 'Starting…' : 'Start')}
         onEditName={openEditName}
@@ -560,7 +598,63 @@ export default function ExerciseSearchScreen() {
             </Text>
 
             <ScrollView style={styles.filterCategoryList} showsVerticalScrollIndicator={false}>
-              {allCategories.map(cat => {
+              {topLevelCategories.map(cat => {
+                if (cat.is_accordion) {
+                  const children = getChildren(cat.id);
+                  const isExpanded = expandedAccordionId === cat.id;
+                  const allChildrenSelected = children.length > 0 && children.every(c => activeCategories.some(a => a.id === c.id));
+                  const someChildrenSelected = children.some(c => activeCategories.some(a => a.id === c.id));
+                  return (
+                    <View key={cat.id}>
+                      <TouchableOpacity
+                        style={[styles.filterCategoryRow, someChildrenSelected && styles.filterCategoryRowActive]}
+                        onPress={() => setExpandedAccordionId(isExpanded ? null : cat.id)}
+                      >
+                        <View style={styles.filterCategoryInfo}>
+                          <Text style={[styles.filterCategoryName, someChildrenSelected && styles.filterCategoryNameActive]}>
+                            {cat.name}
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                          size={16}
+                          color={someChildrenSelected ? '#FFF' : '#888'}
+                        />
+                      </TouchableOpacity>
+                      {isExpanded && (
+                        <View style={styles.accordionChildren}>
+                          <TouchableOpacity
+                            style={[styles.filterCategoryRow, styles.accordionChildRow, allChildrenSelected && styles.filterCategoryRowActive]}
+                            onPress={() => selectAllChildren(cat.id)}
+                          >
+                            <Text style={[styles.filterCategoryName, allChildrenSelected && styles.filterCategoryNameActive]}>All</Text>
+                            <Text style={[styles.filterCategoryAction, allChildrenSelected && styles.filterCategoryActionActive]}>
+                              {allChildrenSelected ? '×' : '+'}
+                            </Text>
+                          </TouchableOpacity>
+                          {children.map(child => {
+                            const isActive = activeCategories.some(c => c.id === child.id);
+                            return (
+                              <TouchableOpacity
+                                key={child.id}
+                                style={[styles.filterCategoryRow, styles.accordionChildRow, isActive && styles.filterCategoryRowActive]}
+                                onPress={() => toggleCategory(child)}
+                              >
+                                <Text style={[styles.filterCategoryName, isActive && styles.filterCategoryNameActive]}>
+                                  {child.name}
+                                </Text>
+                                <Text style={[styles.filterCategoryAction, isActive && styles.filterCategoryActionActive]}>
+                                  {isActive ? '×' : '+'}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  );
+                }
+
                 const isActive = activeCategories.some(c => c.id === cat.id);
                 const subtitle = cat.muscle_groups?.join(', ') || '';
                 return (
@@ -1022,6 +1116,16 @@ const styles = StyleSheet.create({
   },
   filterCategoryActionActive: {
     color: '#FFFFFF',
+  },
+
+  // Accordion
+  accordionChildren: {
+    paddingLeft: 8,
+    marginBottom: 4,
+  },
+  accordionChildRow: {
+    backgroundColor: '#F8F8F8',
+    marginBottom: 4,
   },
 
   // Edit name modal

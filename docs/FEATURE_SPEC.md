@@ -56,16 +56,16 @@
 ### Key Fields
 
 **exercises:**
-- `name`, `body_region`, `muscle_group`, `category_ids[]`, `specific_muscles[]`, `aliases[]`, `description`, `equipment text[]`
+- `name`, `body_region`, `muscle_group`, `category_ids[]`, `specific_muscles[]`, `aliases[]`, `description`, `equipment text[]`, `metric_type text` (reps | time | distance_weight | cardio | hybrid), `default_distance_unit text`
 
 **workouts:**
 - `user_id`, `workout_date`, `name`, `category_id`, `status` (active/completed), `notes`, `completed_at`
 
 **workout_exercises:**
-- `workout_id`, `stage_id`, `exercise_id`, `equipment text`, `sort_order`, `proposed_sets`, `proposed_reps_min`, `proposed_reps_max`, `proposed_weight`
+- `workout_id`, `exercise_id`, `equipment text`, `sort_order`
 
 **sets:**
-- `workout_exercise_id`, `set_number`, `reps`, `weight`, `is_completed`, `completed_at`, `is_pr`
+- `workout_exercise_id`, `set_number`, `reps`, `weight`, `duration` (seconds integer), `distance`, `distance_unit`, `is_completed`, `completed_at`, `is_pr`
 
 ### Data Visibility
 
@@ -76,6 +76,26 @@
 | Set data (weights, reps) | Private per user |
 | PRs, 1RM calculations | Private per user |
 | Notes | Private per user |
+
+---
+
+## Metric Type System
+
+Each exercise has a `metric_type` that defines which inputs are required for logging. This drives UI, validation, and display throughout the app.
+
+| Type | Primary Input | Secondary Input | Notes |
+|------|--------------|----------------|-------|
+| `reps` | Reps (required) | Weight (optional) | Default for most strength exercises |
+| `time` | Time MM:SS (required) | — | Holds/planks/timed sets |
+| `distance_weight` | Distance (required) | Weight (optional) | Weighted carries |
+| `cardio` | Distance (required) | Time MM:SS (optional) | Running, rowing, cycling |
+| `hybrid` | Reps or Time (either) | — | Battle ropes, circuits |
+
+**Validation rule:** A set is only saved to the database if its primary metric is non-empty and non-zero. This is enforced at save time by `setHasValidData()` in WorkoutOverviewScreen regardless of the `is_completed` flag.
+
+**Pre-save dialog:** Before completing a workout, if any exercise has sets missing primary metric data, a "Missing Data" alert lists those exercises (with count of affected sets). User can "Edit" (return to overview) or "Remove & Continue" (proceed without those sets).
+
+**Utility:** `utils/metricConfig.ts` — `getMetricConfig(metricType)` is the single source of truth; returns `{ fields, hasDistanceUnit, unitOptions, autoCompleteWhen }`. Also exports `formatTimeInput()`, `mmssToSeconds()`, `secondsToMMSS()`.
 
 ---
 
@@ -358,11 +378,10 @@ The goal: always show the relevant month label at the bottom of the visible area
 - Scroll disabled while a drag is in progress
 - "+ Add Exercise" row at bottom → ExerciseSearch with `addToSession: true`
 
-**Complete Workout:**
-- If uncompleted sets exist, prompts:
-  - **Go Back** — returns to overview
-  - **No — Skip them** — deletes incomplete sets, then submits
-  - **Yes — Mark complete** — marks all incomplete sets as complete, then submits
+**Complete Workout flow:**
+1. **Missing Data check** — If any exercise has sets with missing primary metric data (empty or zero), an alert lists those exercises with the count of affected sets. "Edit" returns to overview; "Remove & Continue" proceeds.
+2. **Incomplete Sets check** — If any sets have valid primary metric data but are not marked complete, prompts: **Go Back** (returns to overview) / **No — Skip them** (excludes unchecked sets) / **Yes — Mark complete** (marks all as complete). Only sets passing this check (with valid data) are submitted.
+3. **Submit** — Sets without primary metric data are never written to DB regardless of path taken.
 - On submit (new workout): batch DB write — workout record → `Promise.all(workout_exercises)` → `Promise.all(sets)`
 - On submit (edit mode, `session.workoutId` present): deletes existing sets + workout_exercises for that workout, re-inserts from session state, then updates the workout record
 - After submit: clears session context, navigates to MainTabs with `initialFocusDate` = workout date
@@ -379,18 +398,19 @@ The goal: always show the relevant month label at the bottom of the visible area
 - X (close) icon (top-left) → returns to Workout Overview
 - Trash icon + info icon (top-right); trash shows confirm alert → calls `removeExercise()` → navigates to Workout Overview; info is placeholder (no action)
 - Exercise name (large, left-aligned, bold, 26px) + muscle group subtitle
-- Equipment dropdown: pill button below name; tapping opens an inline dropdown rendered directly below the button (not a modal); selector pill's bottom corners flatten when open; shows only equipment types available for that exercise (fetched from `exercises.equipment[]` on mount); selected option has checkmark; tapping an option calls `updateExerciseEquipment()` and closes the dropdown
+- Equipment dropdown: pill button below name; tapping opens an inline dropdown rendered directly below the button (not a modal); selector pill's bottom corners flatten when open; shows only equipment types available for that exercise (fetched from `exercises.equipment[]` on mount); selected option has checkmark; tapping an option calls `updateExerciseEquipment()`, closes the dropdown, and re-fetches `previousBest` from Supabase filtered by the new equipment via `setExercisePreviousBest()`
 - "Previous best: X reps × Y lbs" shown below equipment when available
 
 **Sets Table:**
-- Columns: Set# | Reps | Lbs | ✓
-- ✓ header button: `TouchableOpacity` that calls `markAllSetsComplete()` — marks every set for the exercise as complete
-- Reps and weight are free-text inputs (numeric keyboard)
-- On blur: if both reps and weight are filled and the set is not yet complete, auto-marks it complete (`toggleSetComplete`)
-- On focus: if the set is already complete, unchecks it (`toggleSetComplete`) so the user can edit freely
+- Columns driven by `getMetricConfig(exercise.metric_type)`: reps exercises show Set# | Reps | Lbs | ✓; time exercises show Set# | Time (MM:SS) | ✓; cardio shows Set# | Dist | Time | ✓; etc.
+- Time inputs use a clock-style MM:SS formatter (`formatTimeInput`): digits fill right to left, capped at 99:59; keyboard type is number-pad
+- Distance unit selector (pill toggle above table): shown for exercises with `hasDistanceUnit = true`; applies to all sets in the exercise at once
+- Reps and weight are free-text numeric inputs
+- On blur: if all `autoCompleteWhen` fields are filled and the set is not yet complete, auto-marks it complete
+- On focus: if the set is already complete, unchecks it so the user can edit freely
 - ✓ cell: tapping manually toggles `is_completed`; completed sets show a filled dark box with white ✓; incomplete sets show a faint ✓
 - Swipe row left to reveal Delete action (red, removes set from context)
-- `KeyboardAvoidingView` keeps inputs visible when keyboard is open
+- `KeyboardAwareScrollView` keeps inputs visible when keyboard is open
 
 **"+ Add Set" Button:**
 - Adds a new set row to the exercise in context
@@ -436,13 +456,14 @@ The goal: always show the relevant month label at the bottom of the visible area
 - Exercise cards (accordion-style, collapsed by default):
   - **Collapsed state:**
     - Header: exercise name + equipment/muscle group subtitle + chevron indicator
-    - "1RM [value] lbs" shown inline on right side of subtitle row (smaller, muted text)
+    - For reps/hybrid exercises: "1RM [value] lbs" shown inline on right side of subtitle row (smaller, muted text)
+    - For time-only exercises: total duration (MM:SS) shown inline
     - No divider, no detail rows
   - **Expanded state:**
     - Same header (1RM inline hidden)
     - Divider line
-    - Detail rows: 1 Rep Max, Total Volume, PR (highest weight lifted)
-    - Set detail table showing: Set number / Reps / Weight
+    - Detail rows: metric-dependent — reps/hybrid show 1 Rep Max, Total Volume, PR (highest weight); time/cardio show Total Time (MM:SS); distance-based show Total Distance + unit
+    - Set detail table columns driven by `getMetricConfig(metric_type)`: time shows Time (MM:SS); reps shows Reps / Lbs; cardio shows Dist / Time; etc.
   - Toggle expanded/collapsed by tapping header
 
 **Duplicate Sheet Button:**
@@ -595,6 +616,11 @@ Auto-detected when weight × reps exceeds previous best for that exercise variat
   - [x] ExerciseViewScreen — per-exercise set logging, prev/next nav, swipe-delete
   - [x] Batch DB write on Complete Workout
   - [x] Incomplete sets dialog (Go Back / Skip / Mark complete)
+  - [x] Metric type system (`utils/metricConfig.ts` — `getMetricConfig`, `formatTimeInput`, `mmssToSeconds`, `secondsToMMSS`)
+  - [x] Dynamic metric columns in ExerciseViewScreen and ExerciseSummaryCard
+  - [x] Save-time validation by metric type — sets with missing/zero primary metric never reach DB
+  - [x] Missing Data pre-save dialog — lists exercises with invalid sets before completing
+  - [x] Equipment-scoped previous best lookup + re-fetch on equipment change
   - [ ] Auto-complete previous set when moving to next input (deferred)
   - [ ] Set logging interaction refinement (deferred)
 - [ ] Exercise library screen
@@ -646,6 +672,10 @@ Auto-detected when weight × reps exceeds previous best for that exercise variat
 | Equipment dropdown in Exercise View | Inline dropdown rendered below the pill button (not a modal/bottom sheet); fetched per-exercise from `exercises.equipment[]` |
 | Set auto-complete | On blur: auto-marks complete when both reps + weight filled; on focus: unchecks if already complete so user can edit |
 | Edit workout submit | Delete existing sets + workout_exercises, re-insert from session state, update workout record — cleaner than per-row upserts |
+| Metric type source of truth | `exercises.metric_type` DB column drives all input fields, validation, and display — no metric logic scattered by field-presence guessing |
+| Equipment-scoped previous best | Previous best query filters by both `exercise_id` AND `equipment`; re-fetched from Supabase when user changes equipment in ExerciseView |
+| Proposed columns removed | `proposed_sets`, `proposed_reps_min`, `proposed_reps_max`, `proposed_weight` removed from `workout_exercises`; template proposals managed in session context only |
+| Save-time set validation | Sets with missing or zero primary metric never reach DB; checked by `setHasValidData()` regardless of `is_completed` flag |
 | Workout Overview exercise delete | Swipe-to-delete (Swipeable) on exercise rows; hamburger icon reserved for drag-to-reorder |
 | Exercise View exercise delete | Trash icon in header row triggers confirm alert → removeExercise → navigate to WorkoutOverview |
 
@@ -661,8 +691,6 @@ Auto-detected when weight × reps exceeds previous best for that exercise variat
 ### Column Name Reference
 Actual database columns (not legacy names):
 - `sort_order` (not `order_index`)
-- `proposed_sets` (not `target_sets`)
-- `proposed_reps_min/max` (not `target_reps_min/max`)
 - `is_completed` (not `completed`)
 
 ### Key Components
@@ -672,7 +700,7 @@ Actual database columns (not legacy names):
 - `StatRow` — Label/value row for stats display
 - `ExerciseSummaryCard` — Accordion exercise card for completed workout summary
 - `WorkoutHeader` — Dark panel shared across ExerciseSearch and ActiveWorkout; supports editable name (pencil → modal), subtitle, expandable selected exercises list; Cancel button on left, Start/Save on right (drag handle bar, PanResponder), drag-to-reorder per row (RN responder system, `onReorderItems` prop), optional Start/Add button (green pill) + Cancel button (red pill); `startLabel` prop overrides button text
-- `WorkoutSessionContext` — React Context holding all in-session state; initialized by `initSession()`; consumed by WorkoutOverview and ExerciseView; cleared by `clearSession()` after submit or cancel; `loadPreviousSets()` calls `get_previous_workout_sets` RPC per exercise in parallel and pre-fills weight
+- `WorkoutSessionContext` — React Context holding all in-session state; initialized by `initSession()`; consumed by WorkoutOverview and ExerciseView; cleared by `clearSession()` after submit or cancel; `loadPreviousSets()` queries Supabase directly (nested join) per exercise, filtered by both `exercise_id` and `equipment`; `setExercisePreviousBest()` updates a single exercise's previous best (used after equipment change in ExerciseView); `LocalSet` includes `duration`, `distance`, `distance_unit` fields; `SessionExercise` includes `metric_type`
 
 ---
 

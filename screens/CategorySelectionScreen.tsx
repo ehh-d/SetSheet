@@ -6,10 +6,9 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
-  Dimensions,
+  Alert,
 } from 'react-native';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
 import { format, parseISO } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { Category } from '../types';
@@ -18,6 +17,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WorkoutHeader } from '../components/WorkoutHeader';
+import { Ionicons } from '@expo/vector-icons';
 
 type CategorySelectionNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -25,13 +25,10 @@ type CategorySelectionNavigationProp = NativeStackNavigationProp<
 >;
 type CategorySelectionRouteProp = RouteProp<RootStackParamList, 'CategorySelection'>;
 
-type TabType = 'All' | 'Splits' | 'Muscle' | 'Cardio' | 'Conditioning';
-const TABS: TabType[] = ['All', 'Splits', 'Muscle', 'Cardio', 'Conditioning'];
-
 export default function CategorySelectionScreen() {
-  const [selectedTab, setSelectedTab] = useState<TabType>('All');
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedParent, setSelectedParent] = useState<Category | null>(null);
   const navigation = useNavigation<CategorySelectionNavigationProp>();
   const route = useRoute<CategorySelectionRouteProp>();
   const insets = useSafeAreaInsets();
@@ -43,6 +40,7 @@ export default function CategorySelectionScreen() {
   }, []);
 
   const loadCategories = async () => {
+    setLoading(true);
     const { data, error } = await supabase
       .from('categories')
       .select('*')
@@ -54,102 +52,87 @@ export default function CategorySelectionScreen() {
     setLoading(false);
   };
 
-  const getFilteredCategories = () => {
-    if (selectedTab === 'All') return categories;
-    return categories.filter(cat => cat.category_group === selectedTab);
+  const topLevel = categories.filter(c => !c.parent_id);
+  const children = selectedParent
+    ? categories.filter(c => c.parent_id === selectedParent.id)
+    : [];
+
+  const visibleCategories = selectedParent ? children : topLevel;
+
+  const handleCancel = () => {
+    Alert.alert(
+      'Cancel Workout',
+      "Are you sure you want to cancel? You'll be taken back to your sheets.",
+      [
+        { text: 'Keep Going', style: 'cancel' },
+        { text: 'Cancel Workout', style: 'destructive', onPress: () => navigation.goBack() },
+      ]
+    );
   };
 
   const handleCategorySelect = (category: Category) => {
-    navigation.navigate('ExerciseSearch', {
-      categoryId: category.id,
-      categoryName: category.name,
-      date,
-    });
-  };
-
-  const handleFreeWorkout = () => {
-    navigation.navigate('ExerciseSearch', {
-      categoryId: '',
-      categoryName: 'Free Workout',
-      date,
-    });
+    if (category.is_accordion) {
+      setSelectedParent(category);
+    } else {
+      navigation.navigate('ExerciseSearch', {
+        categoryId: category.id,
+        categoryName: category.name,
+        date,
+      });
+    }
   };
 
   const parsedDate = parseISO(date);
   const monthDay = format(parsedDate, 'MMM d');
   const day = parsedDate.getDate();
 
+  const screenTitle = selectedParent ? selectedParent.name : 'Select Workout Type';
+
   return (
     <View style={styles.container}>
       <WorkoutHeader
         date={monthDay}
         ordinalDay={day}
-        onCancel={() => navigation.goBack()}
+        onCancel={handleCancel}
       />
 
-      <Text style={styles.screenTitle}>Select Workout Type</Text>
+      <View style={styles.titleRow}>
+        {selectedParent && (
+          <TouchableOpacity onPress={() => setSelectedParent(null)} style={styles.backButton}>
+            <Ionicons name="chevron-back" size={22} color="#888888" />
+          </TouchableOpacity>
+        )}
+        <Text style={styles.screenTitle}>{screenTitle}</Text>
+      </View>
 
       <ScrollView
         style={styles.categoriesContainer}
-        contentContainerStyle={styles.categoriesContent}
+        contentContainerStyle={[styles.categoriesContent, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
         {loading ? (
           <ActivityIndicator size="large" color="#FFFFFF" style={styles.loader} />
         ) : (
-          <>
-            {selectedTab === 'All' && (
-              <TouchableOpacity style={styles.categoryCard} onPress={handleFreeWorkout} activeOpacity={0.7}>
-                <View style={styles.cardContent}>
-                  <Text style={styles.categoryName}>Free Workout</Text>
-                  <Text style={styles.categoryDescription}>Up to you</Text>
-                </View>
-                <Text style={styles.arrow}>›</Text>
-              </TouchableOpacity>
-            )}
-            {getFilteredCategories().map(category => (
-              <TouchableOpacity
-                key={category.id}
-                style={styles.categoryCard}
-                onPress={() => handleCategorySelect(category)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.cardContent}>
-                  <Text style={styles.categoryName}>{category.name}</Text>
+          visibleCategories.map(category => (
+            <TouchableOpacity
+              key={category.id}
+              style={styles.categoryCard}
+              onPress={() => handleCategorySelect(category)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.cardContent}>
+                <Text style={styles.categoryName}>{category.name}</Text>
+                {category.muscle_groups && category.muscle_groups.length > 0 && (
                   <Text style={styles.categoryDescription}>
-                    {category.muscle_groups?.join(', ') || ''}
+                    {category.muscle_groups.join(', ')}
                   </Text>
-                </View>
-                <Text style={styles.arrow}>›</Text>
-              </TouchableOpacity>
-            ))}
-          </>
+                )}
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#757575" />
+            </TouchableOpacity>
+          ))
         )}
       </ScrollView>
-
-      {/* Bottom Tab Bar */}
-      <View style={[styles.bottomFloat, { paddingBottom: insets.bottom + 8 }]}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabsContent}
-        >
-          <View style={styles.tabBar}>
-            {TABS.map(tab => (
-              <TouchableOpacity
-                key={tab}
-                style={[styles.tab, selectedTab === tab && styles.tabSelected]}
-                onPress={() => setSelectedTab(tab)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.tabText, selectedTab === tab && styles.tabTextSelected]}>
-                  {tab}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </ScrollView>
-      </View>
     </View>
   );
 }
@@ -159,21 +142,29 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1E1E1E',
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginTop: 24,
+    marginBottom: 16,
+    gap: 4,
+  },
+  backButton: {
+    marginRight: 4,
+  },
   screenTitle: {
     fontSize: 24,
     fontWeight: '700',
     color: '#FFFFFF',
-    marginTop: 24,
-    marginBottom: 16,
-    paddingHorizontal: 16,
     lineHeight: 32,
+    flex: 1,
   },
   categoriesContainer: {
     flex: 1,
   },
   categoriesContent: {
     paddingHorizontal: 16,
-    paddingBottom: 12,
   },
   loader: {
     marginTop: 40,
@@ -202,54 +193,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '400',
     color: '#757575',
-  },
-  arrow: {
-    fontSize: 28,
-    color: '#757575',
-    marginLeft: 8,
-  },
-  bottomFloat: {
-    backgroundColor: '#F0F0F0',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: -15 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 8,
-  },
-  tabsContent: {
-    flexGrow: 1,
-  },
-  tabBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1B1B1B',
-    borderRadius: 56,
-    height: 60,
-    paddingHorizontal: 24,
-    gap: 8,
-    minWidth: SCREEN_WIDTH - 32,
-    marginHorizontal: 16,
-    marginTop: 24,
-    marginBottom: 16,
-  },
-  tab: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 16,
-  },
-  tabSelected: {
-    backgroundColor: '#D5D5D5',
-  },
-  tabText: {
-    fontSize: 16,
-    fontWeight: '400',
-    color: '#757575',
-    lineHeight: 20,
-  },
-  tabTextSelected: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1B1B1B',
-    lineHeight: 20,
   },
 });

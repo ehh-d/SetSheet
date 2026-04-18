@@ -13,6 +13,7 @@ SetSheet/
   docs/
     FEATURE_SPEC.md    # Current app specification (source of truth)
     CHANGELOG.md       # Running history of changes
+    BACKLOG.md         # Deferred items, UX ideas, known issues to revisit
     EXERCISE_LIBRARY.md # Exercise database reference
     WORKFLOW.md        # This file
 ```
@@ -41,6 +42,18 @@ After reading docs, run:
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 open -a Simulator
 ```
+
+### iOS Simulator — Local Build (`expo run:ios`)
+
+Required when a new native module is added and the existing dev client binary doesn't have it linked.
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/node node_modules/expo/bin/cli run:ios 2>&1 | tee /tmp/metro.log
+```
+
+> **Work computer issue:** `expo run:ios` calls `xcode-select` internally. If it prompts to open the App Store or says Xcode isn't installed, `xcode-select` isn't pointing to Xcode. The `DEVELOPER_DIR` env var overrides it without requiring sudo. If this still fails, the machine lacks sufficient Xcode developer tool access (work MDM restriction) — use a physical device EAS build instead.
+
+---
 
 ### Physical Device (SetSheet Dev build)
 
@@ -90,8 +103,9 @@ When Eddie says "end session" (or similar), Claude Code should:
 2. **Summarize changes** — Brief list of what was accomplished
 3. **Update CHANGELOG.md** — Add entries for changes made this session
 4. **Update FEATURE_SPEC.md** (if applicable — see below)
-5. **Note incomplete work** — Flag anything left in progress
-6. **Identify next steps** — What should be tackled next session
+5. **Backlog check** — Ask Eddie: "Anything from this session to add to BACKLOG.md?" Log any unfinished ideas, deferred UX decisions, or known issues he wants to track
+6. **Note incomplete work** — Flag anything left in progress
+7. **Identify next steps** — What should be tackled next session
 
 ### Update FEATURE_SPEC.md when:
 

@@ -11,9 +11,9 @@ import {
   Alert,
   Share,
   Modal,
-  FlatList,
   Dimensions,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -27,8 +27,6 @@ import { Ionicons } from '@expo/vector-icons';
 
 const EXERCISE_URL = 'https://kcgsllsvowamrwljnxmi.supabase.co/functions/v1/exercises';
 
-type TabType = 'All' | 'Splits' | 'Muscle' | 'Cardio' | 'Conditioning';
-const TABS: TabType[] = ['All', 'Splits', 'Muscle', 'Cardio', 'Conditioning'];
 
 type UploadTemplateScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -45,24 +43,39 @@ export default function UploadTemplateScreen() {
 
   const [templateText, setTemplateText] = useState('');
   const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState<{ id: string; name: string; category_group: string; muscle_groups: string[] | null }[]>([]);
+  const [categories, setCategories] = useState<{ id: string; name: string; category_group: string; muscle_groups: string[] | null; parent_id: string | null; is_accordion: boolean | null }[]>([]);
+  const [expandedAccordionId, setExpandedAccordionId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
-  const [categoryTab, setCategoryTab] = useState<TabType>('All');
+  const [categoryTab, setCategoryTab] = useState<string>('Full Body');
+  const [tabs, setTabs] = useState<string[]>(['Full Body']);
   const [exerciseCount, setExerciseCount] = useState(6);
   const [showCountPicker, setShowCountPicker] = useState(false);
 
   useEffect(() => {
     const fetchCategories = async () => {
-      const { data } = await supabase.from('categories').select('id, name, category_group, muscle_groups').order('display_order');
-      if (data) setCategories(data);
+      const { data } = await supabase.from('categories').select('id, name, category_group, muscle_groups, parent_id, is_accordion').order('display_order');
+      if (data) {
+        setCategories(data);
+        setSelectedCategory('Full Body');
+        // Build tabs dynamically from distinct category_group values (in order of first appearance)
+        const seen = new Set<string>();
+        const groups: string[] = [];
+        data.forEach(c => {
+          if (c.category_group && !seen.has(c.category_group)) {
+            seen.add(c.category_group);
+            groups.push(c.category_group);
+          }
+        });
+        setTabs(['Full Body', ...groups]);
+      }
     };
     fetchCategories();
   }, []);
 
   const templateExample = selectedCategory
-    ? `${selectedCategory}\n- Exercise Name (Equipment) SetsxReps\n- Exercise Name (Equipment) SetsxReps`
-    : `[Workout Name]\n- Exercise Name (Equipment) SetsxReps\n- Exercise Name (Equipment) SetsxReps`;
+    ? `# ${selectedCategory}\n- Exercise Name (Equipment) SetsxReps\n- Exercise Name (Equipment) SetsxReps`
+    : `# Workout Name\n- Exercise Name (Equipment) SetsxReps\n- Exercise Name (Equipment) SetsxReps`;
 
   const promptText = selectedCategory
     ? `Generate a ${selectedCategory} workout from this exercise set: ${EXERCISE_URL}\n\nUse this template format:\n\n${templateExample}\n\nFilter by exercises where categories includes "${selectedCategory}". Match exercise names exactly.\n\nSelect ${exerciseCount} exercises. Distribute evenly across the specific muscles in this category.\n\nReturn the workout as a plain text code block.`
@@ -115,32 +128,52 @@ export default function UploadTemplateScreen() {
 
   const handleParseTemplate = async () => {
     if (!templateText.trim()) {
-      Alert.alert('Error', 'Please enter a template');
+      Alert.alert('Error', 'Please paste your AI-generated template first.');
       return;
     }
 
     setLoading(true);
     try {
       const parsed = parseTemplate(templateText);
-      const validation = await validateTemplate(parsed, supabase);
 
-      if (!validation.valid) {
-        const missingList = validation.missingExercises.join('\n');
+      // Gate 1: no exercises parsed at all — likely pasted the prompt instead of the response
+      if (parsed.exercises.length === 0) {
+        setLoading(false);
+        Alert.alert(
+          'Template Not Recognized',
+          "No exercises were found. Make sure you're pasting the AI's response, not the prompt itself."
+        );
+        return;
+      }
+
+      const validation = await validateTemplate(parsed, supabase);
+      const validExercises = parsed.exercises.filter(
+        (ex: any) => !validation.missingExercises.includes(ex.name)
+      );
+
+      // Gate 2: none of the exercises exist in the library
+      if (validExercises.length === 0) {
+        setLoading(false);
+        Alert.alert(
+          'No Matching Exercises',
+          "None of the exercises in your template were found in the exercise library. Exercise names must match exactly."
+        );
+        return;
+      }
+
+      // Gate 3: some exercises missing — inform and offer to continue with the valid ones
+      if (validation.missingExercises.length > 0) {
+        const foundCount = validExercises.length;
+        const totalCount = parsed.exercises.length;
         Alert.alert(
           'Some Exercises Not Found',
-          `These exercises weren't recognized:\n\n${missingList}\n\nContinue without them?`,
+          `${foundCount} of ${totalCount} exercises matched the library. The following won't be included:\n\n${validation.missingExercises.join('\n')}`,
           [
             { text: 'Cancel', style: 'cancel', onPress: () => setLoading(false) },
             {
               text: 'Continue',
               onPress: async () => {
-                const filtered = {
-                  ...parsed,
-                  exercises: parsed.exercises.filter(
-                    (ex: any) => !validation.missingExercises.includes(ex.name)
-                  ),
-                };
-                await goToExerciseSearch(filtered);
+                await goToExerciseSearch({ ...parsed, exercises: validExercises });
                 setLoading(false);
               },
             },
@@ -151,7 +184,7 @@ export default function UploadTemplateScreen() {
 
       await goToExerciseSearch(parsed);
     } catch (error) {
-      Alert.alert('Parse Error', 'Failed to parse template. Please check the format.');
+      Alert.alert('Invalid Template', "The template format wasn't recognized. Please check the format and try again.");
       console.error(error);
     } finally {
       setLoading(false);
@@ -172,21 +205,24 @@ export default function UploadTemplateScreen() {
         <View style={{ width: 60 }} />
       </View>
 
-      <ScrollView style={styles.content} keyboardDismissMode="interactive">
+      <KeyboardAwareScrollView style={styles.content} keyboardDismissMode="interactive" bottomOffset={20}>
         <View style={styles.instructions}>
           <Text style={styles.instructionsTitle}>Generate with AI</Text>
           <Text style={styles.instructionsSubtitle}>Select a category, copy the prompt, and paste it into your AI.</Text>
 
           <View style={styles.groupTabBar}>
-            {TABS.map(tab => (
+            {tabs.map(tab => (
               <TouchableOpacity
                 key={tab}
                 style={[styles.groupTab, categoryTab === tab && styles.groupTabSelected]}
                 onPress={() => {
                   setCategoryTab(tab);
-                  if (selectedCategory && tab !== 'All') {
+                  setExpandedAccordionId(null);
+                  if (tab === 'Full Body') {
+                    setSelectedCategory('Full Body');
+                  } else {
                     const match = categories.find(c => c.name === selectedCategory);
-                    if (match && match.category_group !== tab) setSelectedCategory(null);
+                    if (!match || match.category_group !== tab) setSelectedCategory(null);
                   }
                 }}
                 activeOpacity={0.7}
@@ -198,12 +234,14 @@ export default function UploadTemplateScreen() {
             ))}
           </View>
 
-          <TouchableOpacity style={styles.dropdown} onPress={() => setShowCategoryPicker(true)}>
-            <Text style={selectedCategory ? styles.dropdownText : styles.dropdownPlaceholder}>
-              {selectedCategory ?? 'Select workout category…'}
-            </Text>
-            <Ionicons name="chevron-down" size={18} color="#888888" />
-          </TouchableOpacity>
+          {categoryTab !== 'Full Body' && (
+            <TouchableOpacity style={styles.dropdown} onPress={() => setShowCategoryPicker(true)}>
+              <Text style={selectedCategory ? styles.dropdownText : styles.dropdownPlaceholder}>
+                {selectedCategory ?? 'Select workout category…'}
+              </Text>
+              <Ionicons name="chevron-down" size={18} color="#888888" />
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity style={styles.dropdown} onPress={() => setShowCountPicker(true)}>
             <Text style={styles.dropdownText}>{exerciseCount} exercises</Text>
@@ -224,21 +262,26 @@ export default function UploadTemplateScreen() {
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowCategoryPicker(false)}>
             <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
               <Text style={styles.modalTitle}>Select Category</Text>
-              <FlatList
-                data={categoryTab === 'All' ? categories : categories.filter(c => c.category_group === categoryTab)}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[styles.modalRow, selectedCategory === item.name && styles.modalRowActive]}
-                    onPress={() => { setSelectedCategory(item.name); setShowCategoryPicker(false); }}
-                  >
-                    <Text style={[styles.modalRowText, selectedCategory === item.name && styles.modalRowTextActive]}>{item.name}</Text>
-                    {item.muscle_groups && item.muscle_groups.length > 0 && (
-                      <Text style={styles.modalRowSubtitle}>{item.muscle_groups.join(', ')}</Text>
-                    )}
-                  </TouchableOpacity>
-                )}
-              />
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {(() => {
+                  // categoryTab IS the category_group value — no mapping needed
+                  const items = categories.filter(c =>
+                    c.category_group === categoryTab && !c.is_accordion
+                  );
+                  return items.map(item => (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[styles.modalRow, selectedCategory === item.name && styles.modalRowActive]}
+                      onPress={() => { setSelectedCategory(item.name); setShowCategoryPicker(false); }}
+                    >
+                      <Text style={[styles.modalRowText, selectedCategory === item.name && styles.modalRowTextActive]}>{item.name}</Text>
+                      {item.muscle_groups && item.muscle_groups.length > 0 && (
+                        <Text style={styles.modalRowSubtitle}>{item.muscle_groups.join(', ')}</Text>
+                      )}
+                    </TouchableOpacity>
+                  ));
+                })()}
+              </ScrollView>
             </View>
           </TouchableOpacity>
         </Modal>
@@ -247,18 +290,17 @@ export default function UploadTemplateScreen() {
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowCountPicker(false)}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>Exercise Count</Text>
-              <FlatList
-                data={[3, 4, 5, 6, 7, 8, 9, 10]}
-                keyExtractor={(item) => String(item)}
-                renderItem={({ item }) => (
+              <ScrollView>
+                {[3, 4, 5, 6, 7, 8, 9, 10].map((item) => (
                   <TouchableOpacity
+                    key={String(item)}
                     style={[styles.modalRow, exerciseCount === item && styles.modalRowActive]}
                     onPress={() => { setExerciseCount(item); setShowCountPicker(false); }}
                   >
                     <Text style={[styles.modalRowText, exerciseCount === item && styles.modalRowTextActive]}>{item} exercises</Text>
                   </TouchableOpacity>
-                )}
-              />
+                ))}
+              </ScrollView>
             </View>
           </TouchableOpacity>
         </Modal>
@@ -284,7 +326,7 @@ export default function UploadTemplateScreen() {
             <Text style={styles.parseButtonText}>Upload</Text>
           )}
         </TouchableOpacity>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }
@@ -428,6 +470,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666666',
     marginTop: 2,
+  },
+  modalRowIndented: {
+    paddingLeft: 28,
+  },
+  modalAccordionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333333',
+  },
+  modalAccordionText: {
+    fontSize: 15,
+    color: '#888888',
+    fontWeight: '600',
   },
   groupTabBar: {
     flexDirection: 'row',

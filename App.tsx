@@ -109,8 +109,8 @@ function Navigation() {
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="MainTabs" component={MainTabs} />
           <Stack.Screen name="StartWorkout" component={StartWorkoutScreen} options={{ gestureEnabled: false }} />
-          <Stack.Screen name="CategorySelection" component={CategorySelectionScreen} options={{ gestureEnabled: false }} />
-          <Stack.Screen name="ExerciseSearch" component={ExerciseSearchScreen} options={{ gestureEnabled: false }} />
+          <Stack.Screen name="CategorySelection" component={CategorySelectionScreen} />
+          <Stack.Screen name="ExerciseSearch" component={ExerciseSearchScreen} options={{ gestureEnabled: false, animation: 'fade' }} />
           <Stack.Screen name="WorkoutOverview" component={WorkoutOverviewScreen} options={{ gestureEnabled: false }} />
           <Stack.Screen name="ExerciseView" component={ExerciseViewScreen} options={{ gestureEnabled: false }} />
           <Stack.Screen name="UploadTemplate" component={UploadTemplateScreen} options={{ gestureEnabled: false }} />

@@ -4,6 +4,36 @@ All notable changes to SetSheet are documented in this file.
 
 ---
 
+## [2026-04-12] - Metric Type System, Save Validation, and Summary Card
+
+### Added
+- **`utils/metricConfig.ts`** — New utility as single source of truth for metric behavior: `getMetricConfig(metricType)` returns fields, distance unit config, and auto-complete rules per metric type; `formatTimeInput()` — clock-style MM:SS digit formatter; `mmssToSeconds()` / `secondsToMMSS()` — conversion helpers
+- **Metric type system** — `metric_type` field carried from `exercises` table through session context → ExerciseViewScreen → WorkoutOverviewScreen → ExerciseSummaryCard; supported types: `reps`, `time`, `distance_weight`, `cardio`, `hybrid`
+- **ExerciseViewScreen: Dynamic metric columns** — table headers and inputs driven by `getMetricConfig()`; time exercises show MM:SS input; distance exercises show distance field + unit selector; hybrid shows reps + time
+- **ExerciseViewScreen: Distance unit selector** — pill toggle above the set table for distance-based exercises; updates all sets in the exercise at once via `updateExerciseDistanceUnit()`
+- **ExerciseViewScreen: Previous best re-fetch on equipment change** — selecting a different equipment variant re-queries Supabase for that specific exercise + equipment combination and updates `previousBest` in context
+- **WorkoutSessionContext: `setExercisePreviousBest()`** — new method to update a single exercise's previous best (used after equipment change)
+- **WorkoutSessionContext: `updateExerciseDistanceUnit()`** — updates `distance_unit` on all sets for an exercise at once
+- **WorkoutOverviewScreen: `setHasValidData()`** — metric-aware validator; rejects empty strings and zero values for primary metric fields; single source of truth for save-time filtering
+- **WorkoutOverviewScreen: Missing Data pre-save dialog** — before the incomplete-sets check, warns if any exercise has sets with missing primary metric data; lists each exercise name + count of affected sets; "Edit" cancels back to overview, "Remove & Continue" proceeds
+- **ExerciseSummaryCard: Metric-aware display** — table columns driven by `getMetricConfig()`; stats section shows 1RM/Volume/PR for reps-based, Total Time (MM:SS) for time/cardio, Total Distance for distance-based; collapsed inline stat shows duration for time-only exercises
+
+### Changed
+- **WorkoutOverviewScreen: `doSubmit` filters by metric type** — exercises with no valid sets are skipped; individual sets failing `setHasValidData()` are never inserted regardless of `is_completed` flag
+- **WorkoutOverviewScreen: Incomplete sets check** — now only counts sets that have valid primary metric data but aren't marked complete; missing-data sets are handled separately by the pre-save dialog (no double-counting)
+- **WorkoutSessionContext: `loadPreviousSets`** — replaced RPC call with direct Supabase nested join query; filters by both `exercise_id` AND `equipment` (was exercise_id only)
+- **WorkoutSessionContext: `LocalSet`** — adds `duration: string`, `distance: string`, `distance_unit: string` fields
+- **WorkoutSessionContext: `SessionExercise`** — adds `metric_type: string`; `previousBest` type extended with `duration: number | null`
+- **ExerciseViewScreen: Equipment dropdown threshold** — only shown when `availableEquipment.length > 1` (was `> 0`; single-equipment exercises no longer show a dropdown)
+- **HomeScreen: Workout query** — now fetches `metric_type` from exercises and `duration`, `distance`, `distance_unit` from sets
+- **`database.types.ts`** — `exercises` Row adds `metric_type: string`, `default_distance_unit: string | null`; `sets` Row adds `duration: number | null`, `distance: number | null`, `distance_unit: string | null`; `workout_exercises` proposed columns (`proposed_sets`, `proposed_reps_min`, `proposed_reps_max`, `proposed_weight`) removed
+
+### Fixed
+- **Previous best showing wrong equipment data** — history lookup now scoped to both `exercise_id` and `equipment`; switching equipment in ExerciseView re-fetches correctly
+- **Sets with `0` primary metric saved to DB** — `setHasValidData()` rejects zero values; "0 reps" sets are now treated identically to empty sets
+- **Missing Data dialog listing wrong exercises** — now triggers on any exercise with *any* set missing primary metric data (was only triggering when *all* sets were missing)
+- **ExerciseSummaryCard showing hardcoded Reps/Lbs** — columns and stats are now fully dynamic based on `metric_type`
+
 ## [2026-04-03] - Active Workout UI Redesign + UX Improvements
 
 ### Added

@@ -102,13 +102,17 @@ const DatePage = React.memo(function DatePage({
             exercises (
               id,
               name,
-              muscle_group
+              muscle_group,
+              metric_type
             ),
             sets (
               id,
               set_number,
               reps,
               weight,
+              duration,
+              distance,
+              distance_unit,
               is_completed,
               is_pr
             )
@@ -136,8 +140,8 @@ const DatePage = React.memo(function DatePage({
   const handleDeleteWorkout = () => {
     if (!sheet) return;
     Alert.alert(
-      'Delete Workout',
-      'Are you sure you want to delete this workout?',
+      'Delete Sheet',
+      'Are you sure you want to delete this sheet?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -170,6 +174,7 @@ const DatePage = React.memo(function DatePage({
         exerciseName: ex.exercises?.name ?? '',
         equipment: ex.equipment ?? '',
         muscleGroup: ex.exercises?.muscle_group ?? '',
+        metric_type: ex.exercises?.metric_type ?? 'reps',
         sort_order: ex.sort_order ?? 0,
         sets: (ex.sets ?? [])
           .sort((a, b) => (a.set_number ?? 0) - (b.set_number ?? 0))

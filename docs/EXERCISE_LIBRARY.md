@@ -2,30 +2,45 @@
 
 ## Workout Categories
 
-### Splits
+### Standalone
 | Category | Primary Muscles |
 |----------|-----------------|
+| Full Body | All |
 | Push | Chest, Shoulders, Triceps |
 | Pull | Back, Biceps, Rear Delts |
-| Legs | Quads, Hamstrings, Glutes, Calves |
-| Upper Body | Chest, Back, Shoulders, Arms |
 | Lower Body | Quads, Hamstrings, Glutes, Calves |
-| Full Body | All |
+| Upper Body | Chest, Back, Shoulders, Arms |
 
-### Muscle Focus
+### Body Part & Muscles (accordion)
+Broad and specific muscle targets. Renders as an accordion in the filter UI.
+
 | Category | Target |
 |----------|--------|
 | Chest | Chest |
 | Back | Back |
 | Shoulders | Shoulders |
 | Arms | Biceps, Triceps, Forearms |
+| Legs | Quads, Hamstrings, Glutes, Calves |
 | Core | Abs, Obliques, Lower Back |
+| Biceps | Biceps |
+| Triceps | Triceps |
+| Forearms | Forearms |
+| Hamstrings | Hamstrings |
+| Glutes | Glutes |
+| Quads | Quads |
+| Calves | Calves |
+| Abs | Abs |
+| Lats | Lats |
+| Traps | Traps |
+| Abductors | Abductors |
+| Adductors | Adductors |
+| Lower Back | Lower Back |
 | Posterior Chain | Hamstrings, Glutes, Lower Back, Erectors |
 
-### Cardio
+### Cardio (accordion)
 | Category | Type |
 |----------|------|
-| Cardio | General cardiovascular |
+| Cardio | General cardiovascular (All) |
 | Running | Treadmill, outdoor |
 | Cycling | Bikes |
 | Rowing | Rowing machine |
@@ -33,9 +48,9 @@
 ### Conditioning
 | Category | Style |
 |----------|-------|
+| GPP | General physical preparedness |
 | HIIT | High intensity intervals |
 | MetCon | Metabolic conditioning |
-| GPP | General physical preparedness |
 | Circuit | Circuit training |
 
 ---
