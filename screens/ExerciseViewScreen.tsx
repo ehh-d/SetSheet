@@ -36,6 +36,7 @@ export default function ExerciseViewScreen() {
   const { session: authSession } = useAuth();
   const {
     session,
+    clearSession,
     addSet,
     updateSetField,
     updateExerciseDistanceUnit,
@@ -51,18 +52,11 @@ export default function ExerciseViewScreen() {
   const [equipmentModalVisible, setEquipmentModalVisible] = useState(false);
   const [defaultDistanceUnit, setDefaultDistanceUnit] = useState<string | null>(null);
 
-  if (!session) return null;
-
-  const exerciseIndex = session.exercises.findIndex(ex => ex.localId === exerciseLocalId);
-  const exercise = session.exercises[exerciseIndex];
-
-  if (!exercise) return null;
-
-  const sortedSets = [...exercise.sets].sort((a, b) => a.set_number - b.set_number);
-  const hasNextExercise = exerciseIndex < session.exercises.length - 1;
-  const hasPrevExercise = exerciseIndex > 0;
+  const exerciseIndex = session?.exercises.findIndex(ex => ex.localId === exerciseLocalId) ?? -1;
+  const exercise = session?.exercises[exerciseIndex];
 
   useEffect(() => {
+    if (!exercise) return;
     supabase
       .from('exercises')
       .select('equipment, metric_type, default_distance_unit')
@@ -72,7 +66,14 @@ export default function ExerciseViewScreen() {
         if (data?.equipment) setAvailableEquipment(data.equipment);
         if (data?.default_distance_unit) setDefaultDistanceUnit(data.default_distance_unit);
       });
-  }, [exercise.exerciseId]);
+  }, [exercise?.exerciseId]);
+
+  if (!session) return null;
+  if (!exercise) return null;
+
+  const sortedSets = [...exercise.sets].sort((a, b) => a.set_number - b.set_number);
+  const hasNextExercise = exerciseIndex < session.exercises.length - 1;
+  const hasPrevExercise = exerciseIndex > 0;
 
   const metricType = exercise.metric_type ?? 'reps';
   const config = getMetricConfig(metricType);
@@ -359,25 +360,49 @@ export default function ExerciseViewScreen() {
 
       {/* Footer */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
-        {hasPrevExercise && (
+        <View style={styles.footerButtons}>
+          {hasPrevExercise && (
+            <TouchableOpacity
+              style={styles.prevBtn}
+              onPress={() => {
+                const prev = session.exercises[exerciseIndex - 1];
+                navigation.replace('ExerciseView', { exerciseLocalId: prev.localId });
+              }}
+            >
+              <Ionicons name="chevron-back" size={16} color="#555" />
+              <Text style={styles.prevBtnText}>Prev</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
-            style={styles.prevBtn}
-            onPress={() => {
-              const prev = session.exercises[exerciseIndex - 1];
-              navigation.replace('ExerciseView', { exerciseLocalId: prev.localId });
-            }}
+            style={[styles.nextBtn, !hasPrevExercise && { flex: 1 }]}
+            onPress={handleNext}
           >
-            <Ionicons name="chevron-back" size={16} color="#555" />
-            <Text style={styles.prevBtnText}>Prev</Text>
+            <Text style={styles.nextBtnText}>
+              {hasNextExercise ? 'Next Exercise' : 'Back to Overview'}
+            </Text>
           </TouchableOpacity>
-        )}
+        </View>
         <TouchableOpacity
-          style={[styles.nextBtn, !hasPrevExercise && { flex: 1 }]}
-          onPress={handleNext}
+          style={styles.cancelWorkoutBtn}
+          onPress={() => {
+            Alert.alert(
+              'Cancel Workout',
+              'Are you sure? Your progress will be lost.',
+              [
+                { text: 'Keep Going', style: 'cancel' },
+                {
+                  text: 'Cancel Workout',
+                  style: 'destructive',
+                  onPress: () => {
+                    clearSession();
+                    navigation.navigate('MainTabs');
+                  },
+                },
+              ]
+            );
+          }}
         >
-          <Text style={styles.nextBtnText}>
-            {hasNextExercise ? 'Next Exercise' : 'Back to Overview'}
-          </Text>
+          <Text style={styles.cancelWorkoutText}>Cancel Workout</Text>
         </TouchableOpacity>
       </View>
 
@@ -542,8 +567,20 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingHorizontal: 16,
     paddingTop: 16,
+  },
+  footerButtons: {
     flexDirection: 'row',
     gap: 10,
+    marginBottom: 10,
+  },
+  cancelWorkoutBtn: {
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  cancelWorkoutText: {
+    color: '#CC3333',
+    fontSize: 14,
+    fontWeight: '500',
   },
   prevBtn: {
     flexDirection: 'row',
