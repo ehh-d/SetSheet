@@ -1,6 +1,9 @@
 // @ts-nocheck
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
+
+const SESSION_STORAGE_KEY = '@setsheet_active_session';
 
 function makeLocalId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -121,6 +124,26 @@ function buildSessionExercise(ex: InitExercise, index: number): SessionExercise 
 
 export function WorkoutSessionProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<WorkoutSession | null>(null);
+
+  // Restore session from AsyncStorage on launch
+  useEffect(() => {
+    AsyncStorage.getItem(SESSION_STORAGE_KEY).then(raw => {
+      if (raw) {
+        try {
+          setSession(JSON.parse(raw));
+        } catch (_) {}
+      }
+    });
+  }, []);
+
+  // Persist session to AsyncStorage whenever it changes
+  useEffect(() => {
+    if (session) {
+      AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    } else {
+      AsyncStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+  }, [session]);
 
   const initSession = useCallback((data: { date: string; workoutName: string; categoryId: string | null; exercises: InitExercise[] }) => {
     const exercises = data.exercises.map((ex, i) => buildSessionExercise(ex, i));
