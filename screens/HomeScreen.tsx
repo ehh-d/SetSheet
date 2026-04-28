@@ -253,8 +253,8 @@ const DatePage = React.memo(function DatePage({
     );
   }
 
-  // Completed workout
-  const exercises = sheet.workout_exercises;
+  // Completed workout — filter out exercises with no completed sets
+  const exercises = sheet.workout_exercises.filter(ex => ex.sets.some(s => s.is_completed));
   const totalExercises = exercises.length;
   const totalSets = exercises.reduce(
     (sum, ex) => sum + ex.sets.filter(s => s.is_completed).length, 0
