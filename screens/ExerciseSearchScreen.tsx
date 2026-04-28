@@ -88,7 +88,7 @@ export default function ExerciseSearchScreen() {
   const [existingExerciseKeys, setExistingExerciseKeys] = useState<Set<string>>(new Set());
   const [isStarting, setIsStarting] = useState(false);
 
-  const { session: workoutSession, initSession, addExercises: addToSessionExercises } = useWorkoutSession();
+  const { session: workoutSession, initSession, clearSession, addExercises: addToSessionExercises } = useWorkoutSession();
 
   // Editable sheet name
   const [sheetName, setSheetName] = useState(categoryName || 'Workout');
@@ -287,14 +287,7 @@ export default function ExerciseSearchScreen() {
     setIsEditNameVisible(false);
   };
 
-  const handleStartWorkout = () => {
-    if (selectedExercises.length === 0) {
-      Alert.alert('No Exercises', 'Please select at least one exercise');
-      return;
-    }
-    if (isStarting) return;
-    setIsStarting(true);
-
+  const doStartWorkout = () => {
     initSession({
       date,
       workoutName: sheetName,
@@ -309,12 +302,63 @@ export default function ExerciseSearchScreen() {
         proposedRepsMin: ex.proposedRepsMin,
       })),
     });
-
     navigation.navigate('WorkoutOverview', {
       date,
       workoutName: sheetName,
       categoryId: categoryId || '',
     });
+  };
+
+  const handleStartWorkout = () => {
+    if (selectedExercises.length === 0) {
+      Alert.alert('No Exercises', 'Please select at least one exercise');
+      return;
+    }
+    if (isStarting) return;
+    setIsStarting(true);
+
+    // If there's an active session from a different day, prompt the user
+    if (workoutSession && workoutSession.date !== date) {
+      Alert.alert(
+        'Workout In Progress',
+        `You have an active workout from ${workoutSession.date}: ${workoutSession.workoutName}`,
+        [
+          {
+            text: 'Go to Workout',
+            onPress: () => {
+              setIsStarting(false);
+              navigation.navigate('WorkoutOverview', {
+                date: workoutSession.date,
+                workoutName: workoutSession.workoutName,
+                categoryId: workoutSession.categoryId || '',
+              });
+            },
+          },
+          {
+            text: 'Finish Workout',
+            onPress: () => {
+              setIsStarting(false);
+              navigation.navigate('WorkoutOverview', {
+                date: workoutSession.date,
+                workoutName: workoutSession.workoutName,
+                categoryId: workoutSession.categoryId || '',
+              });
+            },
+          },
+          {
+            text: 'End & Start New',
+            style: 'destructive',
+            onPress: () => {
+              clearSession();
+              doStartWorkout();
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    doStartWorkout();
   };
 
   const handleCancel = () => {
