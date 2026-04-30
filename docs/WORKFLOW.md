@@ -61,18 +61,24 @@ The dev client app does not auto-connect — it requires a server URL or QR code
 
 **Normal (same WiFi):** Run Metro from your terminal and enter `exp://192.168.x.x:8081` in the dev client manually.
 
-**If the phone can't reach the Mac's IP** (work network blocks it — this is always the case on Eddie's setup): use tunnel mode.
+**The work network always blocks direct IP connections.** Use Cloudflare tunnel instead (no account needed):
 
-ngrok must be installed first (one-time setup):
+**Terminal 1 — Start Metro:**
 ```bash
-brew install ngrok/ngrok/ngrok
+cd /Users/eddie.velez/Projects/SetSheet && /opt/homebrew/bin/node node_modules/expo/bin/cli start
 ```
 
-Then run Metro with tunnel:
+**Terminal 2 — Open tunnel:**
 ```bash
-cd /Users/eddie.velez/Projects/SetSheet && /opt/homebrew/bin/node node_modules/expo/bin/cli start --tunnel
+cloudflared tunnel --url http://localhost:8081
 ```
-This provides a public `exp://...` URL and QR code that works over any network.
+
+Copy the `https://xxxx.trycloudflare.com` URL and enter in the dev app:
+```
+exp+setsheet://expo-development-client/?url=https%3A%2F%2Fxxxx.trycloudflare.com
+```
+
+`cloudflared` must be installed: `brew install cloudflared`
 
 **For Claude to read Metro logs:** pipe output to a file:
 ```bash
