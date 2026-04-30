@@ -61,7 +61,7 @@ The dev client app does not auto-connect — it requires a server URL or QR code
 
 **Normal (same WiFi):** Run Metro from your terminal and enter `exp://192.168.x.x:8081` in the dev client manually.
 
-**The work network always blocks direct IP connections.** Use Cloudflare tunnel instead (no account needed):
+**The work network always blocks direct IP connections.** Use ngrok (authenticated, free account set up):
 
 **Terminal 1 — Start Metro:**
 ```bash
@@ -70,15 +70,15 @@ cd /Users/eddie.velez/Projects/SetSheet && /opt/homebrew/bin/node node_modules/e
 
 **Terminal 2 — Open tunnel:**
 ```bash
-cloudflared tunnel --url http://localhost:8081
+ngrok http 8081
 ```
 
-Copy the `https://xxxx.trycloudflare.com` URL and enter in the dev app:
+Copy the `https://xxxx.ngrok-free.dev` URL from the Forwarding line and enter in the dev app:
 ```
-exp+setsheet://expo-development-client/?url=https%3A%2F%2Fxxxx.trycloudflare.com
+exp+setsheet://expo-development-client/?url=https%3A%2F%2Fxxxx.ngrok-free.dev
 ```
 
-`cloudflared` must be installed: `brew install cloudflared`
+ngrok is already installed and authenticated — no extra setup needed.
 
 **For Claude to read Metro logs:** pipe output to a file:
 ```bash
