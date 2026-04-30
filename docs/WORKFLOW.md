@@ -61,11 +61,18 @@ The dev client app does not auto-connect — it requires a server URL or QR code
 
 **Normal (same WiFi):** Run Metro from your terminal and enter `exp://192.168.x.x:8081` in the dev client manually.
 
-**If the phone can't reach the Mac's IP** (network restriction / firewall): use tunnel mode. Run from your terminal:
+**If the phone can't reach the Mac's IP** (work network blocks it — this is always the case on Eddie's setup): use tunnel mode.
+
+ngrok must be installed first (one-time setup):
 ```bash
-NODE_PATH=/opt/homebrew/lib/node_modules npx expo start --tunnel
+brew install ngrok/ngrok/ngrok
 ```
-This installs `@expo/ngrok` on first run (say yes), then provides a public `exp://...` URL and QR code that works over any network.
+
+Then run Metro with tunnel:
+```bash
+cd /Users/eddie.velez/Projects/SetSheet && /opt/homebrew/bin/node node_modules/expo/bin/cli start --tunnel
+```
+This provides a public `exp://...` URL and QR code that works over any network.
 
 **For Claude to read Metro logs:** pipe output to a file:
 ```bash

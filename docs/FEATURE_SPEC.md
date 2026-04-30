@@ -151,7 +151,7 @@ Each exercise has a `metric_type` that defines which inputs are required for log
 
 **States:**
 - **No sheet:** "No workout" message + date + "(Today)" label if current day
-- **Active sheet:** "Continue Sheet" button + "(Today)" label if current day
+- **Active sheet:** "Continue Sheet" button + red "Cancel Workout" link below it + "(Today)" label if current day; "Cancel Workout" deletes the dangling DB record
 - **Completed sheet:** Workout summary inline (see below)
 
 ### 2. Calendar Panel
@@ -421,6 +421,7 @@ The goal: always show the relevant month label at the bottom of the visible area
 - Optional "← Prev" button (shown when not on the first exercise)
 - "Next Exercise" (navigates to next exercise via `navigation.replace`) or "Back to Overview" (when on last exercise)
 - Exercise-to-exercise navigation uses `navigation.replace` to avoid stacking history
+- Red "Cancel Workout" text link below navigation buttons — confirms then calls `clearSession()` and navigates to MainTabs
 
 **Set Pre-Population:**
 - *Template workout*: N sets pre-created per exercise from `proposed_sets`; reps pre-filled from `proposed_reps_min`; weight pre-filled from previous best via `loadPreviousSets` RPC
@@ -621,6 +622,11 @@ Auto-detected when weight × reps exceeds previous best for that exercise variat
   - [x] Save-time validation by metric type — sets with missing/zero primary metric never reach DB
   - [x] Missing Data pre-save dialog — lists exercises with invalid sets before completing
   - [x] Equipment-scoped previous best lookup + re-fetch on equipment change
+  - [x] Session persistence to AsyncStorage — survives crashes and restarts
+  - [x] "Workout In Progress" prompt when starting a new workout on a different day (Go to Workout / Finish Workout / End & Start New)
+  - [x] Cancel Workout button in ExerciseView footer
+  - [x] Cancel Workout link in HomeScreen active sheet state
+  - [x] Completed workout history filters out exercises with no completed sets
   - [ ] Auto-complete previous set when moving to next input (deferred)
   - [ ] Set logging interaction refinement (deferred)
 - [ ] Exercise library screen
@@ -660,7 +666,7 @@ Auto-detected when weight × reps exceeds previous best for that exercise variat
 | Stages in UI | Removed — `workout_stages` table dropped; `stage_id` set to `null` on workout_exercises |
 | Cancel/leave Active Workout | Shows confirmation dialog; confirming calls `clearSession()` — no DB cleanup needed (local-first) |
 | Active workout data persistence | Local-first: all session state in React Context; DB write only on Complete Workout |
-| Active workout crash risk | Accepted — crash mid-session loses unsaved data; no background persistence in v1 |
+| Active workout crash risk | Mitigated — session persisted to AsyncStorage on every state change; restored automatically on app launch |
 | Active workout redesign | Split into two screens: Workout Overview (exercise list) + Exercise View (per-exercise logging) |
 | Dev build variant | EAS dev profile with `APP_VARIANT=development`; separate bundle ID + app name; runs alongside production app |
 | Equipment storage | `text[]` on `exercises` table — no separate `exercise_variations` table |
@@ -700,7 +706,7 @@ Actual database columns (not legacy names):
 - `StatRow` — Label/value row for stats display
 - `ExerciseSummaryCard` — Accordion exercise card for completed workout summary
 - `WorkoutHeader` — Dark panel shared across ExerciseSearch and ActiveWorkout; supports editable name (pencil → modal), subtitle, expandable selected exercises list; Cancel button on left, Start/Save on right (drag handle bar, PanResponder), drag-to-reorder per row (RN responder system, `onReorderItems` prop), optional Start/Add button (green pill) + Cancel button (red pill); `startLabel` prop overrides button text
-- `WorkoutSessionContext` — React Context holding all in-session state; initialized by `initSession()`; consumed by WorkoutOverview and ExerciseView; cleared by `clearSession()` after submit or cancel; `loadPreviousSets()` queries Supabase directly (nested join) per exercise, filtered by both `exercise_id` and `equipment`; `setExercisePreviousBest()` updates a single exercise's previous best (used after equipment change in ExerciseView); `LocalSet` includes `duration`, `distance`, `distance_unit` fields; `SessionExercise` includes `metric_type`
+- `WorkoutSessionContext` — React Context holding all in-session state; initialized by `initSession()`; consumed by WorkoutOverview and ExerciseView; cleared by `clearSession()` after submit or cancel; `loadPreviousSets()` queries Supabase directly (nested join) per exercise, filtered by both `exercise_id` and `equipment`; `setExercisePreviousBest()` updates a single exercise's previous best (used after equipment change in ExerciseView); `LocalSet` includes `duration`, `distance`, `distance_unit` fields; `SessionExercise` includes `metric_type`; session persisted to AsyncStorage (`@setsheet_active_session`) on every state change and restored on app launch
 
 ---
 

@@ -4,6 +4,21 @@ All notable changes to SetSheet are documented in this file.
 
 ---
 
+## [2026-04-29] - Session Persistence, Crash Recovery, and Stability Fixes
+
+### Added
+- **Session persistence** — `WorkoutSessionContext` now saves session state to AsyncStorage (`@setsheet_active_session`) on every change; session is restored automatically on app launch, surviving crashes and restarts
+- **"Workout In Progress" prompt** — When starting a new workout on a different day than the active session, an alert offers: Go to Workout / Finish Workout / End & Start New
+- **Cancel Workout in ExerciseView** — Red "Cancel Workout" link in footer below nav buttons; confirms then clears session and returns to MainTabs
+- **Cancel Workout on HomeScreen** — Red "Cancel Workout" link below "Continue Sheet" button for active/stuck workouts; deletes the dangling DB record
+
+### Fixed
+- **ExerciseViewScreen hooks violation** — `useEffect` was placed after conditional `return null` statements, violating React's rules of hooks and causing crashes; moved before all conditional returns
+- **Completed workout history** — Exercises with no completed sets are now filtered out of the workout summary view
+- **EAS update channel mismatch** — All updates now deployed to both `preview` and `development` channels
+
+---
+
 ## [2026-04-12] - Metric Type System, Save Validation, and Summary Card
 
 ### Added
