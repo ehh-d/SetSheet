@@ -4,6 +4,24 @@ All notable changes to SetSheet are documented in this file.
 
 ---
 
+## [2026-04-30] - Active Session Prompts, Continue Workout, and Tunneling Fix
+
+### Added
+- **App-launch active session prompt** — On HomeScreen mount, if a session is restored from AsyncStorage, an alert offers: Go to Workout / Delete In Progress Workout / Go Home
+- **"Continue Workout" button on session date** — When viewing a date that has no DB workout but matches the active session's date, the day card shows "Workout in progress" + "Continue Workout" button (instead of "Add a Workout")
+- **`EXPO_PACKAGER_PROXY_URL` documentation** — WORKFLOW.md now documents the proper ngrok setup (env var + deep-link URL format) plus a full troubleshooting cheat sheet covering every error encountered during setup
+- **EAS dev-client rebuild guidance** — Documented that native-module errors (`__UI_WORKLET_RUNTIME_HOLDER`, etc.) require rebuilding the dev client when packages like `react-native-reanimated` are added
+
+### Changed
+- **ExerciseSearch start-workout dialog** — Reduced from 3 options to 2: "Go to Workout" (resume existing session) and "Delete In Progress Workout" (clear session, allow new start). Removed redundant "Finish Workout" option. Starting a new workout while one is in progress is no longer allowed without explicitly deleting the in-progress session first.
+- **HomeScreen "Add a Workout" / "Start Workout" buttons** — Now intercept tap when an active session exists; show "Workout In Progress" alert with "Go to Workout" / "Delete In Progress Workout" instead of navigating to StartWorkout. Prompt fires at the source (over Sheets) rather than after the next screen has loaded.
+- **Bottom-tab "Start" button (`App.tsx`)** — Same interception; `tabPress` listener calls `e.preventDefault()` and shows the same alert when a session is active, so the Start tab can't open StartWorkoutScreen behind the dialog.
+
+### Reverted
+- **StartWorkoutScreen mount-time session check** — Earlier attempt to gate inside the screen (with content-hiding) was removed; check now lives at the navigation source instead.
+
+---
+
 ## [2026-04-29] - Session Persistence, Crash Recovery, and Stability Fixes
 
 ### Added

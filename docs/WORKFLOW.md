@@ -63,30 +63,75 @@ The dev client app does not auto-connect — it requires a server URL or QR code
 
 **The work network always blocks direct IP connections.** Use ngrok (authenticated, free account set up):
 
-**Terminal 1 — Start Metro:**
-```bash
-cd /Users/eddie.velez/Projects/SetSheet && /opt/homebrew/bin/node node_modules/expo/bin/cli start
-```
-
-**Terminal 2 — Open tunnel:**
+**Terminal 1 — Start ngrok first (so you have the URL for Metro):**
 ```bash
 ngrok http 8081
 ```
+Copy the `https://xxxx.ngrok-free.dev` URL from the Forwarding line.
 
-Copy the `https://xxxx.ngrok-free.dev` URL from the Forwarding line and enter in the dev app:
+**Terminal 2 — Start Metro with `EXPO_PACKAGER_PROXY_URL` set to the ngrok URL:**
+```bash
+cd /Users/eddie.velez/Projects/SetSheet && EXPO_PACKAGER_PROXY_URL=https://xxxx.ngrok-free.dev /opt/homebrew/bin/node node_modules/expo/bin/cli start 2>&1 | tee /tmp/metro.log
+```
+
+> **Why this matters:** Without `EXPO_PACKAGER_PROXY_URL`, Metro's manifest tells the device to fetch the bundle from `127.0.0.1:8081`, which is unreachable. With it set, Metro advertises the public ngrok URL (and drops the `:8081` port since ngrok HTTPS uses 443).
+
+**On the dev app:** paste this into the URL field (or open in Safari) — replace the ngrok subdomain with yours:
 ```
 exp+setsheet://expo-development-client/?url=https%3A%2F%2Fxxxx.ngrok-free.dev
 ```
 
+> **Don't enter just `https://xxxx.ngrok-free.dev` in the URL field** — the dev client will append `:8081`, which breaks because ngrok HTTPS listens on 443. Always use the full `exp+setsheet://...?url=...` deep link format.
+
+**Verify the manifest is correct:**
+```bash
+curl -s http://localhost:8081/ | python3 -c "import sys,json; print(json.load(sys.stdin)['launchAsset']['url'])"
+```
+Should print `https://xxxx.ngrok-free.dev/index.ts.bundle?...` (no port). If you see `127.0.0.1:8081` or `:8081` in the URL, `EXPO_PACKAGER_PROXY_URL` isn't set.
+
 ngrok is already installed and authenticated — no extra setup needed.
 
-**For Claude to read Metro logs:** pipe output to a file:
-```bash
-NODE_PATH=/opt/homebrew/lib/node_modules npx expo start --tunnel 2>&1 | tee /tmp/metro.log
-```
-Claude can then `cat /tmp/metro.log` to see errors.
+### When to rebuild the dev client (EAS)
 
-> **Issue to raise:** If a physical device shows "Failed to connect to exp://[local-IP]:8081", the local network is blocking the connection. Switch to `--tunnel` mode immediately.
+Symptoms: red error overlay with `__UI_WORKLET_RUNTIME_HOLDER` undefined, "Cannot find native module", or similar native-module errors.
+
+Cause: the dev client binary was compiled before a native module (e.g. `react-native-reanimated`, `react-native-keyboard-controller`) was added to package.json. JS bundle expects the module; binary doesn't have it linked.
+
+Fix:
+```bash
+eas build --profile development --platform ios
+```
+Takes ~20 minutes. Install the resulting `.ipa` on the device via the link/QR EAS provides, then reconnect.
+
+### Troubleshooting cheat sheet
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Red `Could not connect to development server` with URL containing `:8081` | Bare ngrok URL pasted into dev app's URL field — dev client auto-appends `:8081`, but ngrok HTTPS is on 443 | Use the full `exp+setsheet://expo-development-client/?url=https%3A%2F%2Fxxxx.ngrok-free.dev` deep-link format |
+| Red `Could not connect` with URL containing `127.0.0.1` | `EXPO_PACKAGER_PROXY_URL` not set when starting Metro | Restart Metro with the env var |
+| `ERR_NGROK_3200` (endpoint offline) when `curl`-ing the ngrok URL | ngrok process died or never started | Restart `ngrok http 8081` in its own terminal |
+| `ERR_NGROK_8012` (upstream connection failed) | ngrok is up but Metro isn't running on 8081 | Start Metro |
+| `Port 8081 is running this app in another window` + `non-interactive mode` exits | Stale Metro process from a prior session | `kill $(lsof -ti :8081)` then restart |
+| White screen, dev menu still works | JS loaded but a render path returned nothing — usually a native-module mismatch (see EAS rebuild section above) or auth hanging | Check `/tmp/metro.log` for runtime errors |
+| Phone shows "Loading from Metro" forever | First bundle build (especially after `--clear`) takes 1–3 min | Wait it out; don't reload mid-build |
+| Bundle changes not reflected after edit | Phone is using a cached bundle | Restart Metro with `--clear` flag, force-quit dev app, reconnect via Safari deep link |
+| `Run 'npm start' from react-native root` text in the red error | Generic React Native boilerplate — NOT actual instructions for our setup | Ignore that line; the URL on the same screen is what matters |
+| `xcrun simctl ... non-zero code 72` warning at Metro startup | Work-MDM-restricted Xcode tooling; only affects iOS Simulator, not physical device | Ignore — physical device flow still works |
+| `Cannot find module ... node_modules/expo/bin/cli` | Ran command from `Projects/` instead of `Projects/SetSheet/` | `cd /Users/eddie.velez/Projects/SetSheet` first |
+
+### Useful side tools
+
+- **ngrok inspector:** `http://127.0.0.1:4040` in a browser on the Mac. Shows every request hitting the tunnel — handy for confirming the phone is reaching ngrok at all. (`GET /` and `HEAD /` are the dev client probing the server; `GET /index.ts.bundle` is the actual bundle download.)
+- **Manifest sanity check:** `curl -s http://localhost:8081/ | python3 -c "import sys,json; print(json.load(sys.stdin)['launchAsset']['url'])"` — the URL printed is exactly what the dev client will use to fetch the bundle.
+- **Read Metro logs from Claude:** `cat /tmp/metro.log` (only works if Metro was started with `... | tee /tmp/metro.log`).
+
+### Why we can't just use `expo start --tunnel`
+
+Expo's built-in `--tunnel` flag uses `@expo/ngrok-bin`, which doesn't have a binary for Node 25 (the version on this Mac). That's why we run ngrok separately via Homebrew and pair it with `EXPO_PACKAGER_PROXY_URL`. If Node ever gets downgraded to an LTS (22), `--tunnel` becomes a one-line alternative.
+
+### ngrok URL is random each session
+
+The free ngrok plan gives a new random subdomain every time you run `ngrok http 8081`. To get a stable URL (so you can bookmark the deep link in Safari), claim the one free static domain at [dashboard.ngrok.com/domains](https://dashboard.ngrok.com/domains), then run `ngrok http --domain=your-domain.ngrok-free.app 8081`.
 
 ---
 

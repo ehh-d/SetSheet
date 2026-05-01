@@ -1,4 +1,5 @@
 import React from 'react';
+import { Alert } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -7,7 +8,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { WorkoutSessionProvider } from './contexts/WorkoutSessionContext';
+import { WorkoutSessionProvider, useWorkoutSession } from './contexts/WorkoutSessionContext';
 import { RootStackParamList, MainTabParamList } from './types';
 
 // Screens
@@ -27,6 +28,7 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 
 
 function MainTabs() {
+  const { session: workoutSession, clearSession } = useWorkoutSession();
   return (
     <Tab.Navigator
       screenOptions={{
@@ -66,6 +68,35 @@ function MainTabs() {
             <Ionicons name="add-circle-outline" size={size} color={color} />
           ),
         }}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            if (workoutSession) {
+              e.preventDefault();
+              Alert.alert(
+                'Workout In Progress',
+                `You have an active workout: ${workoutSession.workoutName} (${workoutSession.date})`,
+                [
+                  {
+                    text: 'Go to Workout',
+                    onPress: () => navigation.navigate('WorkoutOverview', {
+                      date: workoutSession.date,
+                      workoutName: workoutSession.workoutName,
+                      categoryId: workoutSession.categoryId || '',
+                    }),
+                  },
+                  {
+                    text: 'Delete In Progress Workout',
+                    style: 'destructive',
+                    onPress: () => {
+                      clearSession();
+                      navigation.navigate('StartWorkout');
+                    },
+                  },
+                ]
+              );
+            }
+          },
+        })}
       />
       <Tab.Screen
         name="ExerciseLibrary"

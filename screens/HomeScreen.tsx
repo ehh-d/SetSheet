@@ -66,7 +66,36 @@ const DatePage = React.memo(function DatePage({
   const [sheet, setSheet] = useState<WorkoutWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const hasLoadedRef = useRef(false);
-  const { initSession, initSessionFromExisting } = useWorkoutSession();
+  const { session: workoutSession, initSession, initSessionFromExisting, clearSession } = useWorkoutSession();
+
+  const handleStartWorkoutTap = (targetDate: string) => {
+    if (workoutSession) {
+      Alert.alert(
+        'Workout In Progress',
+        `You have an active workout: ${workoutSession.workoutName} (${workoutSession.date})`,
+        [
+          {
+            text: 'Go to Workout',
+            onPress: () => navigation.navigate('WorkoutOverview', {
+              date: workoutSession.date,
+              workoutName: workoutSession.workoutName,
+              categoryId: workoutSession.categoryId || '',
+            }),
+          },
+          {
+            text: 'Delete In Progress Workout',
+            style: 'destructive',
+            onPress: () => {
+              clearSession();
+              navigation.navigate('StartWorkout', { date: targetDate });
+            },
+          },
+        ]
+      );
+      return;
+    }
+    navigation.navigate('StartWorkout', { date: targetDate });
+  };
 
   const isPastDate = !isSameDay(date, new Date()) && date < new Date();
   const isToday = isSameDay(date, new Date());
@@ -208,21 +237,42 @@ const DatePage = React.memo(function DatePage({
   }
 
   if (!sheet) {
+    const dateStr = format(date, 'yyyy-MM-dd');
+    const hasActiveSession = workoutSession?.date === dateStr;
+
     return (
       <View style={styles.noSheet}>
         {isToday && <Text style={styles.todayIndicator}>(Today)</Text>}
         <Text style={styles.noSheetDate}>
           {format(date, 'MMMM d, yyyy')}
         </Text>
-        <Text style={styles.noSheetText}>No workout</Text>
-        <TouchableOpacity
-          style={styles.startButton}
-          onPress={() => navigation.navigate('StartWorkout', { date: format(date, 'yyyy-MM-dd') })}
-        >
-          <Text style={styles.startButtonText}>
-            {isToday ? 'Start Workout' : 'Add a Workout'}
-          </Text>
-        </TouchableOpacity>
+        {hasActiveSession ? (
+          <>
+            <Text style={styles.noSheetText}>Workout in progress</Text>
+            <TouchableOpacity
+              style={styles.startButton}
+              onPress={() => navigation.navigate('WorkoutOverview', {
+                date: workoutSession!.date,
+                workoutName: workoutSession!.workoutName,
+                categoryId: workoutSession!.categoryId || '',
+              })}
+            >
+              <Text style={styles.startButtonText}>Continue Workout</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Text style={styles.noSheetText}>No workout</Text>
+            <TouchableOpacity
+              style={styles.startButton}
+              onPress={() => handleStartWorkoutTap(dateStr)}
+            >
+              <Text style={styles.startButtonText}>
+                {isToday ? 'Start Workout' : 'Add a Workout'}
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     );
   }
@@ -399,8 +449,37 @@ export default function HomeScreen() {
     return dateStr ? parseISO(dateStr) : new Date();
   });
   const { session } = useAuth();
+  const { session: workoutSession, clearSession } = useWorkoutSession();
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const insets = useSafeAreaInsets();
+
+  // On app open: prompt to continue active session
+  useEffect(() => {
+    if (!workoutSession) return;
+    Alert.alert(
+      'Workout In Progress',
+      `You have an active workout: ${workoutSession.workoutName} (${workoutSession.date})`,
+      [
+        {
+          text: 'Go to Workout',
+          onPress: () => navigation.navigate('WorkoutOverview', {
+            date: workoutSession.date,
+            workoutName: workoutSession.workoutName,
+            categoryId: workoutSession.categoryId || '',
+          }),
+        },
+        {
+          text: 'Delete In Progress Workout',
+          style: 'destructive',
+          onPress: () => clearSession(),
+        },
+        {
+          text: 'Go Home',
+          style: 'cancel',
+        },
+      ]
+    );
+  }, []);
   const collapsedHeight = getCollapsedHeight(insets.top);
 
   const SCREEN_WIDTH = Dimensions.get('window').width;

@@ -335,22 +335,11 @@ export default function ExerciseSearchScreen() {
             },
           },
           {
-            text: 'Finish Workout',
-            onPress: () => {
-              setIsStarting(false);
-              navigation.navigate('WorkoutOverview', {
-                date: workoutSession.date,
-                workoutName: workoutSession.workoutName,
-                categoryId: workoutSession.categoryId || '',
-              });
-            },
-          },
-          {
-            text: 'End & Start New',
+            text: 'Delete In Progress Workout',
             style: 'destructive',
             onPress: () => {
               clearSession();
-              doStartWorkout();
+              setIsStarting(false);
             },
           },
         ]

@@ -150,9 +150,14 @@ Each exercise has a `metric_type` that defines which inputs are required for log
 - Updates focusDate state which syncs with calendar panel above
 
 **States:**
-- **No sheet:** "No workout" message + date + "(Today)" label if current day
-- **Active sheet:** "Continue Sheet" button + red "Cancel Workout" link below it + "(Today)" label if current day; "Cancel Workout" deletes the dangling DB record
+- **No sheet (no active session for this date):** "No workout" message + date + "Start Workout" / "Add a Workout" button
+- **No sheet but date matches active local session:** "Workout in progress" message + "Continue Workout" button → navigates to WorkoutOverview using the in-memory session (no DB lookup)
+- **Active sheet (DB workout in progress):** "Continue Sheet" button + red "Cancel Workout" link below it + "(Today)" label if current day; "Cancel Workout" deletes the dangling DB record
 - **Completed sheet:** Workout summary inline (see below)
+
+**On HomeScreen mount (app open):** if `WorkoutSessionContext` restored a session from AsyncStorage, an alert fires once:
+- Title: "Workout In Progress" with workout name and date
+- Options: **Go to Workout** (navigates to WorkoutOverview) / **Delete In Progress Workout** (destructive, clears session) / **Go Home** (cancel, dismisses)
 
 ### 2. Calendar Panel
 
@@ -623,7 +628,9 @@ Auto-detected when weight × reps exceeds previous best for that exercise variat
   - [x] Missing Data pre-save dialog — lists exercises with invalid sets before completing
   - [x] Equipment-scoped previous best lookup + re-fetch on equipment change
   - [x] Session persistence to AsyncStorage — survives crashes and restarts
-  - [x] "Workout In Progress" prompt when starting a new workout on a different day (Go to Workout / Finish Workout / End & Start New)
+  - [x] "Workout In Progress" prompt on app open (Go to Workout / Delete In Progress Workout / Go Home)
+  - [x] "Workout In Progress" prompt when starting a new workout on a different day (Go to Workout / Delete In Progress Workout)
+  - [x] "Continue Workout" button on date pages matching the active session date
   - [x] Cancel Workout button in ExerciseView footer
   - [x] Cancel Workout link in HomeScreen active sheet state
   - [x] Completed workout history filters out exercises with no completed sets
